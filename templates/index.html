@@ -1,0 +1,220 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>Cai Install - Web GUI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet"/>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+</head>
+<body>
+<div id="background-overlay"></div>
+<div class="app-container">
+    <!-- 顶部应用栏 -->
+    <header class="app-bar">
+        <div class="app-bar-content">
+            <span class="material-icons app-icon">dynamic_feed</span>
+            <h1 class="app-title">Cai Install</h1>
+            <div class="app-version">Release1.1 Web GUI</div>
+            <a class="btn btn-text settings-link" href="/about">
+                <span class="material-icons">info_outline</span>
+                <span class="settings-text">关于</span>
+            </a>
+            <a class="btn btn-text settings-link" href="/settings">
+                <span class="material-icons">settings</span>
+                <span class="settings-text">设置</span>
+            </a>
+        </div>
+    </header>
+    <!-- 主内容区域 -->
+    <main class="main-content">
+        <!-- 配置状态卡片 -->
+        <div class="card config-card">
+            <div class="card-header">
+                <span class="material-icons">settings_applications</span>
+                <h2>配置状态</h2>
+            </div>
+            <div class="card-content">
+                <div class="config-status" id="configStatus">
+                    <div class="loading">正在初始化...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 游戏搜索卡片 -->
+        <div class="card search-card">
+            <div class="card-header">
+                <span class="material-icons">search</span>
+                <h2>游戏搜索 (查找AppID)</h2>
+            </div>
+            <div class="card-content">
+                <form class="game-search-form" id="gameSearchForm">
+                    <div class="input-group">
+                        <label class="input-label" for="gameNameInput">游戏名称</label>
+                        <input class="text-field" id="gameNameInput" name="gameName" placeholder="例如: 艾尔登法环" required="" type="text"/>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" id="searchGameBtn" type="submit">
+                            <span class="material-icons">search</span> 搜索
+                        </button>
+                    </div>
+                </form>
+                <div id="gameSearchResults" class="game-search-results"></div>
+            </div>
+        </div>
+
+        <!-- 解锁任务卡片 -->
+        <div class="card unlock-card">
+            <div class="card-header">
+                <span class="material-icons">build_circle</span>
+                <h2>游戏入库</h2>
+            </div>
+            <div class="card-content">
+                <form class="unlock-form" id="unlockForm">
+                    <div class="form-scroll-content">
+                        <div class="input-group">
+                            <label class="input-label" for="appId">App ID / 链接</label>
+                            <input class="text-field" id="appId" name="appId" placeholder="例如: 730 或 Steam 链接" required="" type="text"/>
+                            <div class="input-helper">请先通过左侧搜索或其它方式获取AppID。</div>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">清单源</label>
+                            <div class="radio-group" id="toolTypeGroup">
+                                <div class="loading">正在加载清单源...</div>
+                            </div>
+                            <div class="radio-group" id="searchResultsContainer" style="margin-top: 16px; display: none;"></div>
+                        </div>
+                        <div class="input-group" id="stAutoUpdateGroup" style="display: none;">
+                            <label class="checkbox-item">
+                                <input id="stAutoUpdate" name="stAutoUpdate" type="checkbox"/>
+                                <span class="checkbox-button"></span>
+                                <div class="checkbox-content">
+                                    <span class="checkbox-label">SteamTools: 启用自动更新</span>
+                                    <span class="checkbox-description">让SteamTools自动获取最新清单 (浮动版本)。</span>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="input-group" id="addAllDlcGroup" style="display: none;">
+                            <label class="checkbox-item">
+                                <input id="addAllDlc" name="addAllDlc" type="checkbox"/>
+                                <span class="checkbox-button"></span>
+                                <div class="checkbox-content">
+                                    <span class="checkbox-label">SteamTools: 额外入库所有可用DLC</span>
+                                    <span class="checkbox-description">自动查找并添加入库所有可用DLC。</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-controls-footer">
+                        <div class="button-group">
+                            <button class="btn btn-primary" disabled="" id="unlockBtn" type="submit">
+                                <span class="material-icons">play_arrow</span> 开始任务
+                            </button>
+                            <button class="btn btn-secondary" id="restartSteamBtn" type="button">
+                                <span class="material-icons">restart_alt</span> 重启 Steam
+                            </button>
+                            <button class="btn btn-secondary" id="resetBtn" type="button">
+                                <span class="material-icons">refresh</span> 重置
+                            </button>
+                        </div>
+                        <div class="game-image-container" id="gameImageContainer">
+                            <div class="game-image-placeholder" id="gameImagePlaceholder">
+                                <span class="material-icons">photo_size_select_actual</span>
+                                <span>等待入库</span>
+                            </div>
+                            <img id="gameHeaderImage" src="" alt="Game Header Image" style="display: none;"/>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 日志卡片 -->
+        <div class="card progress-card">
+            <div class="card-header">
+                <span class="material-icons">timeline</span>
+                <h2>执行日志</h2>
+                <div class="card-actions">
+                    <button class="btn btn-text" id="clearLogBtn">
+                        <span class="material-icons">clear_all</span>
+                        清空
+                    </button>
+                </div>
+            </div>
+            <div class="card-content">
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress-placeholder">
+                        <span class="material-icons">info</span>
+                        <p>等待任务开始...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    <!-- 页脚 -->
+    <footer class="app-footer">
+        <div class="copyright">
+            <p>© 2025 Cai Install Web GUI • 作者: pvzcxw & qwq-xinkeng</p>
+        </div>
+    </footer>
+</div>
+
+<div class="floating-action-buttons">
+    <button id="shutdownBtn" class="fab" title="关闭应用">
+        <span class="material-icons">power_settings_new</span>
+    </button>
+    <button id="themeToggleBtn" class="fab" title="切换主题">
+        <span class="material-icons">dark_mode</span>
+    </button>
+    <button id="backgroundSettingsBtn" class="fab" title="自定义背景">
+        <span class="material-icons">wallpaper</span>
+    </button>
+</div>
+
+<div class="snackbar" id="snackbar">
+    <div class="snackbar-content">
+        <span id="snackbarMessage"></span>
+        <button class="snackbar-action" id="snackbarClose"><span class="material-icons">close</span></button>
+    </div>
+</div>
+
+<div id="backgroundModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>自定义背景</h2>
+            <button id="closeBackgroundModal" class="btn-icon"><span class="material-icons">close</span></button>
+        </div>
+        <div class="modal-body">
+            <div class="slider-group">
+                <label for="bgBlur">模糊度</label>
+                <input type="range" id="bgBlur" min="0" max="20" value="0">
+                <span id="bgBlurValue">0px</span>
+            </div>
+            <div class="slider-group">
+                <label for="bgSaturation">饱和度</label>
+                <input type="range" id="bgSaturation" min="0" max="200" value="100">
+                <span id="bgSaturationValue">100%</span>
+            </div>
+            <div class="slider-group">
+                <label for="bgBrightness">亮度</label>
+                <input type="range" id="bgBrightness" min="20" max="100" value="100">
+                <span id="bgBrightnessValue">100%</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="selectBgImageBtn" class="btn btn-secondary"><span class="material-icons">image</span> 选择图片</button>
+            <input type="file" id="bgImageInput" accept="image/*" style="display: none;">
+            <button id="resetBgBtn" class="btn btn-text">恢复默认</button>
+            <button id="saveBgSettingsBtn" class="btn btn-primary"><span class="material-icons">save</span> 保存设置</button>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/theme-toggle.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script src="{{ url_for('static', filename='js/background-manager.js') }}"></script>
+</body>
+</html>
