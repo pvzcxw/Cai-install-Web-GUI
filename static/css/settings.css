@@ -1,0 +1,128 @@
+/* static/css/settings.css (MODIFIED) */
+main.settings-main {
+    max-width: 1200px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 24px;
+    grid-template-columns: 1fr;
+    box-sizing: border-box;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* 状态指示器样式 */
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: var(--md-sys-shape-corner-small);
+    margin-top: 8px;
+    border: 1px solid transparent;
+    transition: all 0.3s ease-in-out;
+}
+
+.status-indicator .status-icon {
+    font-size: 20px;
+}
+
+.status-text {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* 状态: 成功 (用于自动检测和手动有效) */
+.status-indicator.success {
+    background-color: var(--md-sys-color-success-container);
+    color: var(--md-sys-color-on-success-container);
+    border-color: color-mix(in srgb, var(--md-sys-color-success) 40%, transparent); /* 边框颜色更柔和 */
+}
+
+.status-indicator.success .status-icon {
+    color: var(--md-sys-color-success);
+}
+
+body.dark-theme .status-indicator.success {
+    /* 在暗色模式下，使用不同的颜色变量以保证可读性 */
+    background-color: var(--md-sys-color-success-container);
+    color: var(--md-sys-color-on-success-container);
+    border-color: color-mix(in srgb, var(--md-sys-color-success) 50%, transparent);
+}
+
+body.dark-theme .status-indicator.success .status-icon {
+    color: var(--md-sys-color-success); /* 在暗色模式下，图标颜色可能需要调整 */
+}
+
+/* 状态: 警告 */
+.status-indicator.warning {
+    background-color: var(--md-sys-color-warning-container);
+    color: var(--md-sys-color-on-warning-container);
+    border-color: color-mix(in srgb, var(--md-sys-color-warning) 40%, transparent);
+}
+
+.status-indicator.warning .status-icon {
+    color: var(--md-sys-color-warning);
+}
+
+body.dark-theme .status-indicator.warning {
+    background-color: var(--md-sys-color-warning-container);
+    color: var(--md-sys-color-on-warning-container);
+}
+
+@media (max-width: 480px) {
+    .action-buttons {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+/* **** 新增样式：用于Token可见性切换 **** */
+.input-with-button {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.input-with-button .text-field {
+    flex-grow: 1;
+    /* 为右侧按钮留出空间，防止文字与按钮重叠 */
+    padding-right: 48px; 
+}
+
+.btn-icon {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--md-sys-color-on-surface-variant);
+    padding: 10px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+
+.btn-icon:hover {
+    background-color: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 15%, transparent);
+}
+
+/* 当Token可见时，使用等宽字体，方便查看 */
+.token-visible {
+    font-family: 'Courier New', Courier, monospace;
+}
+/* *************************************** */
