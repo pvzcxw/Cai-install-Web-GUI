@@ -268,6 +268,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-bottom: 16px;
+}
+
+/* 确保SteamTools选项组之间有合适的间距 */
+#stAutoUpdateGroup,
+#addAllDlcGroup {
+  margin-top: 8px;
+  margin-bottom: 16px;
 }
 
 .input-label {
