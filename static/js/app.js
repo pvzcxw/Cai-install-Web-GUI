@@ -1,4 +1,4 @@
-// --- START OF FILE static/js/app.js (MODIFIED) ---
+// --- START OF FILE static/js/app.js (MODIFIED WITH WORKSHOP SUPPORT AND DEPOTKEY PATCH) ---
 
 class CaiWebApp {
     constructor() {
@@ -8,7 +8,9 @@ class CaiWebApp {
         this.currentAppId = null;
         this.pollTimeout = null;
         this.stAutoUpdateContext = null; 
-        this.addAllDlcContext = null; // Context for new DLC option
+        this.addAllDlcContext = null;
+        this.patchDepotKeyContext = null; // NEW: 添加depotkey修补上下文
+        this.isWorkshopMode = false;
         this.initialize();
     }
 
@@ -20,11 +22,13 @@ class CaiWebApp {
             resetBtn: document.getElementById('resetBtn'),
             restartSteamBtn: document.getElementById('restartSteamBtn'),
             appIdInput: document.getElementById('appId'),
+            appIdLabel: document.getElementById('appIdLabel'),
+            appIdHelper: document.getElementById('appIdHelper'),
             toolTypeGroup: document.getElementById('toolTypeGroup'),
             searchResultsContainer: document.getElementById('searchResultsContainer'),
             stAutoUpdateGroup: document.getElementById('stAutoUpdateGroup'),
-            // <<-- NEW ELEMENT
             addAllDlcGroup: document.getElementById('addAllDlcGroup'),
+            patchDepotKeyGroup: document.getElementById('patchDepotKeyGroup'), // NEW: 添加depotkey修补组
             progressContainer: document.getElementById('progressContainer'),
             clearLogBtn: document.getElementById('clearLogBtn'),
             snackbar: document.getElementById('snackbar'),
@@ -37,6 +41,13 @@ class CaiWebApp {
             gameImageContainer: document.getElementById('gameImageContainer'),
             gameHeaderImage: document.getElementById('gameHeaderImage'),
             gameImagePlaceholder: document.getElementById('gameImagePlaceholder'),
+            // 创意工坊相关元素
+            workshopModeBtn: document.getElementById('workshopModeBtn'),
+            unlockCardIcon: document.getElementById('unlockCardIcon'),
+            unlockCardTitle: document.getElementById('unlockCardTitle'),
+            modeIndicator: document.getElementById('modeIndicator'),
+            gameModeOptions: document.getElementById('gameModeOptions'),
+            workshopModeOptions: document.getElementById('workshopModeOptions'),
         };
 
         this.initializeSocket();
@@ -51,7 +62,6 @@ class CaiWebApp {
         this.socket.on('disconnect', () => this.showSnackbar('Disconnected from server.', 'error'));
         this.socket.on('task_progress', (data) => this.addLogEntry(data.type, data.message));
     }
-
 
     initializeEventListeners() {
         this.elements.unlockForm.addEventListener('submit', (e) => {
@@ -91,6 +101,9 @@ class CaiWebApp {
         this.elements.clearLogBtn.addEventListener('click', () => this.clearLogs());
         this.elements.snackbarClose.addEventListener('click', () => this.hideSnackbar());
 
+        // 创意工坊模式切换
+        this.elements.workshopModeBtn.addEventListener('click', () => this.toggleWorkshopMode());
+
         this.elements.unlockForm.addEventListener('change', (event) => {
             if (event.target.name === 'toolType') {
                 this.elements.searchResultsContainer.style.display = 'none';
@@ -108,6 +121,54 @@ class CaiWebApp {
                 this.elements.unlockBtn.disabled = false;
             }
         });
+    }
+
+    // 切换创意工坊模式
+    toggleWorkshopMode() {
+        this.isWorkshopMode = !this.isWorkshopMode;
+        this.updateModeUI();
+        this.resetForm();
+    }
+
+    // 更新界面根据当前模式
+    updateModeUI() {
+        const workshopBtn = this.elements.workshopModeBtn;
+        const cardIcon = this.elements.unlockCardIcon;
+        const cardTitle = this.elements.unlockCardTitle;
+        const modeIndicator = this.elements.modeIndicator;
+        const gameModeOptions = this.elements.gameModeOptions;
+        const workshopModeOptions = this.elements.workshopModeOptions;
+        const appIdLabel = this.elements.appIdLabel;
+        const appIdHelper = this.elements.appIdHelper;
+        const appIdInput = this.elements.appIdInput;
+
+        if (this.isWorkshopMode) {
+            // 切换到创意工坊模式
+            workshopBtn.innerHTML = '<span class="material-icons">build_circle</span>游戏入库';
+            workshopBtn.title = '切换到游戏入库模式';
+            cardIcon.textContent = 'extension';
+            cardTitle.textContent = '创意工坊入库';
+            modeIndicator.style.display = 'block';
+            gameModeOptions.style.display = 'none';
+            workshopModeOptions.style.display = 'block';
+            // 保持游戏搜索卡片始终显示
+            appIdLabel.textContent = '创意工坊物品链接或ID';
+            appIdHelper.textContent = '支持创意工坊链接或数字ID，例如: https://steamcommunity.com/sharedfiles/filedetails/?id=123456789';
+            appIdInput.placeholder = '例如: 创意工坊链接或物品ID';
+        } else {
+            // 切换到游戏模式
+            workshopBtn.innerHTML = '<span class="material-icons">extension</span>创意工坊';
+            workshopBtn.title = '切换到创意工坊模式';
+            cardIcon.textContent = 'build_circle';
+            cardTitle.textContent = '游戏入库';
+            modeIndicator.style.display = 'none';
+            gameModeOptions.style.display = 'block';
+            workshopModeOptions.style.display = 'none';
+            // 保持游戏搜索卡片始终显示
+            appIdLabel.textContent = 'App ID / 链接';
+            appIdHelper.textContent = '请先通过左侧搜索或其它方式获取AppID。';
+            appIdInput.placeholder = '例如: 730 或 Steam 链接';
+        }
     }
 
     setupMutationObserver() {
@@ -137,10 +198,10 @@ class CaiWebApp {
                 this.elements.configStatus.innerHTML = this.generateConfigStatusHTML(data);
                 this.elements.unlockBtn.disabled = false;
                 
-                // <<-- MODIFIED LOGIC -->>
                 const showStOptions = this.unlockerType === 'steamtools';
                 this.elements.stAutoUpdateGroup.style.display = showStOptions ? 'block' : 'none';
                 this.elements.addAllDlcGroup.style.display = showStOptions ? 'block' : 'none';
+                this.elements.patchDepotKeyGroup.style.display = showStOptions ? 'block' : 'none'; // NEW: 显示depotkey修补选项
                 
                 this.loadSources();
             } else {
@@ -238,21 +299,79 @@ class CaiWebApp {
         const formData = new FormData(this.elements.unlockForm);
         this.currentAppId = this.elements.appIdInput.value.trim();
         
+        if (!this.currentAppId) { 
+            const errorMsg = this.isWorkshopMode ? '请输入创意工坊物品链接或ID。' : '请输入 App ID 或链接。';
+            this.showSnackbar(errorMsg, 'error'); 
+            return; 
+        }
+
+        // 根据模式处理不同的任务类型
+        if (this.isWorkshopMode) {
+            await this.startWorkshopTask(formData);
+        } else {
+            await this.startGameTask(formData);
+        }
+    }
+
+    // 处理创意工坊任务
+    async startWorkshopTask(formData) {
+        const copyToConfig = formData.get('workshopCopyToConfig') === 'on';
+        const copyToDepot = formData.get('workshopCopyToDepot') === 'on';
+
+        if (!copyToConfig && !copyToDepot) {
+            this.showSnackbar('请至少选择一个目标目录。', 'error');
+            return;
+        }
+
+        this.taskStatus = 'running';
+        this.setFormDisabled(true);
+        this.elements.progressContainer.innerHTML = '';
+        this.addLogEntry('info', `--- 开始处理创意工坊物品: '${this.currentAppId}' ---`);
+
+        try {
+            const response = await fetch('/api/workshop/start_task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    workshop_input: this.currentAppId,
+                    copy_to_config: copyToConfig,
+                    copy_to_depot: copyToDepot,
+                }),
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.showSnackbar('创意工坊任务已开始。', 'info');
+                this.startStatusPolling();
+            } else { 
+                throw new Error(data.message); 
+            }
+        } catch (error) {
+            this.taskStatus = 'idle';
+            this.setFormDisabled(false);
+            this.showSnackbar(`启动创意工坊任务失败: ${error.message}`, 'error');
+            this.addLogEntry('error', `启动创意工坊任务失败: ${error.message}`);
+        }
+    }
+
+    // 原有的游戏任务处理逻辑
+    async startGameTask(formData) {
         let toolType = formData.get('toolType');
         let useStAutoUpdate;
-        let addAllDlc; // <<-- NEW
+        let addAllDlc;
+        let patchDepotKey; // NEW: 添加depotkey修补参数
 
         const searchResultChoice = document.querySelector('input[name="searchResult"]:checked');
         if (searchResultChoice) {
             toolType = searchResultChoice.value;
             useStAutoUpdate = this.stAutoUpdateContext;
-            addAllDlc = this.addAllDlcContext; // <<-- NEW
+            addAllDlc = this.addAllDlcContext;
+            patchDepotKey = this.patchDepotKeyContext; // NEW: 从上下文获取
         } else {
             useStAutoUpdate = formData.get('stAutoUpdate') === 'on';
-            addAllDlc = formData.get('addAllDlc') === 'on'; // <<-- NEW
+            addAllDlc = formData.get('addAllDlc') === 'on';
+            patchDepotKey = formData.get('patchDepotKey') === 'on'; // NEW: 从表单获取
         }
-    
-        if (!this.currentAppId) { this.showSnackbar('请输入 App ID 或链接。', 'error'); return; }
+
         if (!toolType) { this.showSnackbar('请选择一个清单源。', 'error'); return; }
 
         const appIdMatch = this.currentAppId.match(/(?:\/app\/|\b)(\d+)\b/);
@@ -271,7 +390,6 @@ class CaiWebApp {
         this.addLogEntry('info', `--- 开始为 '${this.currentAppId}' 执行任务 (源: ${toolType}) ---`);
     
         try {
-            // <<-- MODIFIED FETCH BODY -->>
             const response = await fetch('/api/start_task', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -279,7 +397,8 @@ class CaiWebApp {
                     app_id: this.currentAppId,
                     tool_type: toolType,
                     use_st_auto_update: useStAutoUpdate,
-                    add_all_dlc: addAllDlc, // Pass new value
+                    add_all_dlc: addAllDlc,
+                    patch_depot_key: patchDepotKey, // NEW: 传递depotkey修补参数
                 }),
             });
             const data = await response.json();
@@ -307,31 +426,40 @@ class CaiWebApp {
                     clearTimeout(this.pollTimeout);
                     this.taskStatus = 'idle';
                     if (data.result?.action_required === 'select_source') { this.handleSourceSelection(data.result); } 
-                    else { this.stAutoUpdateContext = null; this.addAllDlcContext = null; this.setFormDisabled(false); }
+                    else { 
+                        this.stAutoUpdateContext = null; 
+                        this.addAllDlcContext = null; 
+                        this.patchDepotKeyContext = null; // NEW: 清空depotkey上下文
+                        this.setFormDisabled(false); 
+                    }
                     if (data.result?.message) { this.showSnackbar(data.result.message, data.result.success ? 'success' : 'error'); }
                     this.addLogEntry(data.result?.success ? 'info' : 'error', `--- 任务结束 ---`);
                 }
                 if (Date.now() - pollStartTime > maxPollDuration) {
                     clearInterval(pollInterval); clearTimeout(this.pollTimeout); this.taskStatus = 'idle'; this.setFormDisabled(false);
-                    this.stAutoUpdateContext = null; this.addAllDlcContext = null; this.showSnackbar('任务超时，请检查网络或重试。', 'error'); this.addLogEntry('error', '任务超时，可能由于网络问题或服务器无响应。');
+                    this.stAutoUpdateContext = null; this.addAllDlcContext = null; this.patchDepotKeyContext = null; // NEW: 清空上下文
+                    this.showSnackbar('任务超时，请检查网络或重试。', 'error'); this.addLogEntry('error', '任务超时，可能由于网络问题或服务器无响应。');
                 }
             } catch (error) {
                 console.error('Status polling error:', error);
                 clearInterval(pollInterval); clearTimeout(this.pollTimeout); this.taskStatus = 'idle'; this.setFormDisabled(false);
-                this.stAutoUpdateContext = null; this.addAllDlcContext = null; this.showSnackbar(`轮询状态失败: ${error.message}`, 'error'); this.addLogEntry('error', `轮询状态失败: ${error.message}`);
+                this.stAutoUpdateContext = null; this.addAllDlcContext = null; this.patchDepotKeyContext = null; // NEW: 清空上下文
+                this.showSnackbar(`轮询状态失败: ${error.message}`, 'error'); this.addLogEntry('error', `轮询状态失败: ${error.message}`);
             }
         }, 1500);
 
         this.pollTimeout = setTimeout(() => {
             clearInterval(pollInterval); this.taskStatus = 'idle'; this.setFormDisabled(false);
-            this.stAutoUpdateContext = null; this.addAllDlcContext = null; this.showSnackbar('任务超时，请检查网络或重试。', 'error'); this.addLogEntry('error', '任务超时，可能由于网络问题或服务器无响应。');
+            this.stAutoUpdateContext = null; this.addAllDlcContext = null; this.patchDepotKeyContext = null; // NEW: 清空上下文
+            this.showSnackbar('任务超时，请检查网络或重试。', 'error'); this.addLogEntry('error', '任务超时，可能由于网络问题或服务器无响应。');
         }, maxPollDuration);
     }
 
     handleSourceSelection(result) {
         const sources = result.sources;
         this.stAutoUpdateContext = result.context?.use_st_auto_update ?? false;
-        this.addAllDlcContext = result.context?.add_all_dlc ?? false; // <<-- NEW
+        this.addAllDlcContext = result.context?.add_all_dlc ?? false;
+        this.patchDepotKeyContext = result.context?.patch_depot_key ?? false; // NEW: 保存depotkey上下文
         
         let html = '<label class="input-label">请从搜索结果中选择一个源:</label>';
         sources.forEach((source, index) => {
@@ -367,9 +495,13 @@ class CaiWebApp {
         const allRadios = this.elements.unlockForm.querySelectorAll('input[type="radio"]');
         allRadios.forEach(radio => radio.disabled = disabled);
 
-        // <<-- MODIFIED TO INCLUDE ALL CHECKBOXES -->>
         const allCheckboxes = this.elements.unlockForm.querySelectorAll('input[type="checkbox"]');
         allCheckboxes.forEach(checkbox => checkbox.disabled = disabled);
+
+        // 在任务运行时禁用模式切换按钮
+        if (this.elements.workshopModeBtn) {
+            this.elements.workshopModeBtn.disabled = disabled;
+        }
     }
 
     showSnackbar(message, type = 'info') {
@@ -390,7 +522,11 @@ class CaiWebApp {
         this.currentAppId = null;
         this.stAutoUpdateContext = null; 
         this.addAllDlcContext = null;
+        this.patchDepotKeyContext = null; // NEW: 重置depotkey上下文
         this.setImageState(false);
+        
+        // 重置时也更新界面状态
+        this.updateModeUI();
     }
 }
 
