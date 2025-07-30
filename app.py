@@ -1,4 +1,4 @@
-# --- START OF FILE app.py (MODIFIED) ---
+# --- START OF FILE app.py (MODIFIED WITH WORKSHOP SUPPORT AND DEPOTKEY PATCH) ---
 
 import asyncio
 import os
@@ -178,7 +178,8 @@ def search_game():
         dummy_backend.log.error(dummy_backend.stack_error(e))
         return jsonify({"success": False, "message": message}), 500
 
-async def _run_unlock_task(app_id, tool_type, use_st_auto_update, add_all_dlc):
+# MODIFIED: Added patch_depot_key parameter
+async def _run_unlock_task(app_id, tool_type, use_st_auto_update, add_all_dlc, patch_depot_key):
     async with CaiBackend() as backend:
         patch_log_for_socketio(backend.log)
         TASK_STATE["status"] = "running"
@@ -202,21 +203,42 @@ async def _run_unlock_task(app_id, tool_type, use_st_auto_update, add_all_dlc):
                 raise Exception(f"在所有 GitHub 仓库中都未找到 AppID {app_id_extracted} 的清单。")
             TASK_STATE["result"] = {
                 "success": True, "message": "搜索完成，请选择一个清单源。", "action_required": "select_source",
-                "sources": results, "context": {"use_st_auto_update": use_st_auto_update, "add_all_dlc": add_all_dlc}
+                "sources": results, "context": {"use_st_auto_update": use_st_auto_update, "add_all_dlc": add_all_dlc, "patch_depot_key": patch_depot_key}
             }
             backend.log.info(f"找到 {len(results)} 个源，请在界面上选择。")
             return
         backend.log.info(f"--- 正在使用源 '{tool_type}' 处理 AppID: {app_id_extracted} ---")
         zip_sources = ["printedwaste", "cysaw", "furcate", "assiw", "steamdatabase"]
         if tool_type in zip_sources:
-            success = await backend.process_zip_source(app_id_extracted, tool_type, unlocker_type, use_st_auto_update, add_all_dlc)
+            success = await backend.process_zip_source(app_id_extracted, tool_type, unlocker_type, use_st_auto_update, add_all_dlc, patch_depot_key)
         else:
-            success = await backend.process_github_manifest(app_id_extracted, tool_type, unlocker_type, use_st_auto_update, add_all_dlc)
+            success = await backend.process_github_manifest(app_id_extracted, tool_type, unlocker_type, use_st_auto_update, add_all_dlc, patch_depot_key)
         
         if success:
             TASK_STATE["result"] = {"success": True, "message": f"成功配置 AppID {app_id_extracted}。重启 Steam 后生效。"}
         else:
             raise Exception(f"处理 AppID {app_id_extracted} 失败，请检查日志。")
+
+# Workshop task runner
+async def _run_workshop_task(workshop_input, copy_to_config, copy_to_depot):
+    async with CaiBackend() as backend:
+        patch_log_for_socketio(backend.log)
+        TASK_STATE["status"] = "running"
+        TASK_STATE["progress"] = []
+        TASK_STATE["result"] = None
+        
+        unlocker_type = await backend.initialize()
+        if not unlocker_type:
+            raise Exception("后端初始化失败，请检查配置或Steam路径。")
+        
+        backend.log.info(f"--- 开始处理创意工坊物品: {workshop_input} ---")
+        
+        success = await backend.process_workshop_item(workshop_input, copy_to_config, copy_to_depot)
+        
+        if success:
+            TASK_STATE["result"] = {"success": True, "message": f"成功处理创意工坊物品。重启 Steam 后生效。"}
+        else:
+            raise Exception(f"处理创意工坊物品失败，请检查日志。")
 
 @app.route('/api/start_task', methods=['POST'])
 def start_task():
@@ -227,6 +249,7 @@ def start_task():
     tool_type = data.get('tool_type', 'search')
     use_st_auto_update = data.get('use_st_auto_update', False)
     add_all_dlc = data.get('add_all_dlc', False)
+    patch_depot_key = data.get('patch_depot_key', False)  # NEW: 获取depotkey修补参数
     
     if not app_id_input:
         return jsonify({"success": False, "message": "请输入 AppID 或链接。"})
@@ -234,7 +257,7 @@ def start_task():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(_run_unlock_task(app_id_input, tool_type, use_st_auto_update, add_all_dlc))
+            loop.run_until_complete(_run_unlock_task(app_id_input, tool_type, use_st_auto_update, add_all_dlc, patch_depot_key))
             TASK_STATE["status"] = "completed"
         except Exception as e:
             TASK_STATE["status"] = "error"
@@ -251,6 +274,46 @@ def start_task():
     thread = threading.Thread(target=task_wrapper, daemon=True)
     thread.start()
     return jsonify({"success": True, "message": "任务已开始。"})
+
+# Workshop task endpoint
+@app.route('/api/workshop/start_task', methods=['POST'])
+def start_workshop_task():
+    if TASK_STATE["status"] == "running":
+        return jsonify({"success": False, "message": "一个任务正在运行中。"})
+    
+    data = request.get_json()
+    workshop_input = data.get('workshop_input', '').strip()
+    copy_to_config = data.get('copy_to_config', True)
+    copy_to_depot = data.get('copy_to_depot', True)
+    
+    if not workshop_input:
+        return jsonify({"success": False, "message": "请输入创意工坊物品链接或ID。"})
+    
+    if not copy_to_config and not copy_to_depot:
+        return jsonify({"success": False, "message": "请至少选择一个目标目录。"})
+    
+    def task_wrapper():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_run_workshop_task(workshop_input, copy_to_config, copy_to_depot))
+            TASK_STATE["status"] = "completed"
+        except Exception as e:
+            TASK_STATE["status"] = "error"
+            message = f"发生错误: {str(e)}"
+            TASK_STATE["result"] = {"success": False, "message": message}
+            dummy_backend = CaiBackend()
+            patch_log_for_socketio(dummy_backend.log)
+            dummy_backend.log.error(dummy_backend.stack_error(e))
+        finally:
+            if TASK_STATE["status"] == "running":
+                TASK_STATE["status"] = "error"
+                TASK_STATE["result"] = {"success": False, "message": "任务意外终止。"}
+            loop.close()
+    
+    thread = threading.Thread(target=task_wrapper, daemon=True)
+    thread.start()
+    return jsonify({"success": True, "message": "创意工坊任务已开始。"})
 
 @app.route('/api/task_status')
 def get_task_status():
@@ -280,7 +343,6 @@ def get_detailed_config():
             "background_saturation": config.get("background_saturation", 100),
             "background_brightness": config.get("background_brightness", 100),
             "show_console_on_startup": config.get("show_console_on_startup", False),
-            # **** 新增: 返回强制解锁工具设置 ****
             "force_unlocker_type": config.get("force_unlocker_type", "auto"),
         }})
     except Exception as e:
