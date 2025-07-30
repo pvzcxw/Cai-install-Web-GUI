@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -18,7 +17,7 @@
         <div class="app-bar-content">
             <span class="material-icons app-icon">dynamic_feed</span>
             <h1 class="app-title">Cai Install</h1>
-            <div class="app-version">Release1.1 Web GUI</div>
+            <div class="app-version">Release1.3 Web GUI</div>
             <a class="btn btn-text settings-link" href="/about">
                 <span class="material-icons">info_outline</span>
                 <span class="settings-text">关于</span>
@@ -45,7 +44,7 @@
         </div>
 
         <!-- 游戏搜索卡片 -->
-        <div class="card search-card">
+        <div class="card search-card" id="gameSearchCard">
             <div class="card-header">
                 <span class="material-icons">search</span>
                 <h2>游戏搜索 (查找AppID)</h2>
@@ -69,43 +68,96 @@
         <!-- 解锁任务卡片 -->
         <div class="card unlock-card">
             <div class="card-header">
-                <span class="material-icons">build_circle</span>
-                <h2>游戏入库</h2>
+                <span class="material-icons" id="unlockCardIcon">build_circle</span>
+                <h2 id="unlockCardTitle">游戏入库</h2>
+                <div class="card-actions">
+                    <button class="btn btn-text" id="workshopModeBtn" title="切换到创意工坊模式">
+                        <span class="material-icons">extension</span>
+                        创意工坊
+                    </button>
+                </div>
             </div>
             <div class="card-content">
                 <form class="unlock-form" id="unlockForm">
                     <div class="form-scroll-content">
-                        <div class="input-group">
-                            <label class="input-label" for="appId">App ID / 链接</label>
-                            <input class="text-field" id="appId" name="appId" placeholder="例如: 730 或 Steam 链接" required="" type="text"/>
-                            <div class="input-helper">请先通过左侧搜索或其它方式获取AppID。</div>
-                        </div>
-                        <div class="input-group">
-                            <label class="input-label">清单源</label>
-                            <div class="radio-group" id="toolTypeGroup">
-                                <div class="loading">正在加载清单源...</div>
+                        <!-- 模式切换指示器 -->
+                        <div class="input-group" id="modeIndicator" style="display: none;">
+                            <div class="status-item info">
+                                <span class="material-icons status-icon">extension</span>
+                                <span class="status-text">创意工坊模式：输入创意工坊物品链接或ID</span>
                             </div>
-                            <div class="radio-group" id="searchResultsContainer" style="margin-top: 16px; display: none;"></div>
                         </div>
-                        <div class="input-group" id="stAutoUpdateGroup" style="display: none;">
-                            <label class="checkbox-item">
-                                <input id="stAutoUpdate" name="stAutoUpdate" type="checkbox"/>
-                                <span class="checkbox-button"></span>
-                                <div class="checkbox-content">
-                                    <span class="checkbox-label">SteamTools: 启用自动更新</span>
-                                    <span class="checkbox-description">让SteamTools自动获取最新清单 (浮动版本)。</span>
-                                </div>
-                            </label>
+                        
+                        <div class="input-group">
+                            <label class="input-label" for="appId" id="appIdLabel">App ID / 链接</label>
+                            <input class="text-field" id="appId" name="appId" placeholder="例如: 730 或 Steam 链接" required="" type="text"/>
+                            <div class="input-helper" id="appIdHelper">请先通过左侧搜索或其它方式获取AppID。</div>
                         </div>
-                        <div class="input-group" id="addAllDlcGroup" style="display: none;">
-                            <label class="checkbox-item">
-                                <input id="addAllDlc" name="addAllDlc" type="checkbox"/>
-                                <span class="checkbox-button"></span>
-                                <div class="checkbox-content">
-                                    <span class="checkbox-label">SteamTools: 额外入库所有可用DLC</span>
-                                    <span class="checkbox-description">自动查找并添加入库所有可用DLC。</span>
+                        
+                        <!-- 游戏模式的选项 -->
+                        <div id="gameModeOptions">
+                            <div class="input-group">
+                                <label class="input-label">清单源</label>
+                                <div class="radio-group" id="toolTypeGroup">
+                                    <div class="loading">正在加载清单源...</div>
                                 </div>
-                            </label>
+                                <div class="radio-group" id="searchResultsContainer" style="margin-top: 16px; display: none;"></div>
+                            </div>
+                            <div class="input-group" id="stAutoUpdateGroup" style="display: none;">
+                                <label class="checkbox-item">
+                                    <input id="stAutoUpdate" name="stAutoUpdate" type="checkbox"/>
+                                    <span class="checkbox-button"></span>
+                                    <div class="checkbox-content">
+                                        <span class="checkbox-label">SteamTools: 启用自动更新</span>
+                                        <span class="checkbox-description">让SteamTools自动获取最新清单 (浮动版本)。</span>
+                                    </div>
+                                </label>
+                            </div>
+                            <div class="input-group" id="addAllDlcGroup" style="display: none;">
+                                <label class="checkbox-item">
+                                    <input id="addAllDlc" name="addAllDlc" type="checkbox"/>
+                                    <span class="checkbox-button"></span>
+                                    <div class="checkbox-content">
+                                        <span class="checkbox-label">SteamTools: 额外入库所有可用DLC</span>
+                                        <span class="checkbox-description">自动查找并添加入库所有可用DLC。</span>
+                                    </div>
+                                </label>
+                            </div>
+                            <!-- NEW: 添加depotkey修补选项 -->
+                            <div class="input-group" id="patchDepotKeyGroup" style="display: none;">
+                                <label class="checkbox-item">
+                                    <input id="patchDepotKey" name="patchDepotKey" type="checkbox"/>
+                                    <span class="checkbox-button"></span>
+                                    <div class="checkbox-content">
+                                        <span class="checkbox-label">SteamTools: 同时修补创意工坊depotkey</span>
+                                        <span class="checkbox-description">从SteamAutoCracks仓库获取depotkey并修补到LUA文件中。</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- 创意工坊模式的选项 -->
+                        <div id="workshopModeOptions" style="display: none;">
+                            <div class="input-group">
+                                <label class="checkbox-item">
+                                    <input id="workshopCopyToConfig" name="workshopCopyToConfig" type="checkbox" checked/>
+                                    <span class="checkbox-button"></span>
+                                    <div class="checkbox-content">
+                                        <span class="checkbox-label">复制到 config/depotcache</span>
+                                        <span class="checkbox-description">将清单文件同时复制到 Steam/config/depotcache 目录。</span>
+                                    </div>
+                                </label>
+                            </div>
+                            <div class="input-group">
+                                <label class="checkbox-item">
+                                    <input id="workshopCopyToDepot" name="workshopCopyToDepot" type="checkbox" checked/>
+                                    <span class="checkbox-button"></span>
+                                    <div class="checkbox-content">
+                                        <span class="checkbox-label">复制到 depotcache</span>
+                                        <span class="checkbox-description">将清单文件复制到 Steam/depotcache 目录。</span>
+                                    </div>
+                                </label>
+                            </div>
                         </div>
                     </div>
                     <div class="form-controls-footer">
