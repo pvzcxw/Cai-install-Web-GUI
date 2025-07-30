@@ -1,4 +1,4 @@
-# --- START OF FILE backend.py (FIXED) ---
+# --- START OF FILE backend.py (MODIFIED WITH WORKSHOP SUPPORT AND DEPOTKEY PATCH) ---
 
 import sys
 import os
@@ -18,6 +18,7 @@ import zipfile
 import shutil
 import struct
 import zlib
+import io  # For workshop manifest processing
 from pathlib import Path
 from typing import Tuple, Any, List, Dict, Literal
 from urllib.parse import quote
@@ -97,21 +98,16 @@ class CaiBackend:
         if self.client:
             await self.client.aclose()
 
-    # **** 修正之处 ****
     def _init_log(self, level=logging.INFO) -> logging.Logger:
         logger = logging.getLogger(' Cai install')
         logger.setLevel(level)
         if not logger.handlers:
             stream_handler = colorlog.StreamHandler()
             stream_handler.setLevel(level)
-            # 创建 Formatter
             fmt = colorlog.ColoredFormatter(LOG_FORMAT, log_colors=LOG_COLORS)
-            # 将 Formatter 设置到 Handler 上 (这是正确的做法)
             stream_handler.setFormatter(fmt)
-            # 将配置好的 Handler 添加到 logger
             logger.addHandler(stream_handler)
         return logger
-    # ******************
 
     def _configure_logger(self):
         if not self.config:
@@ -174,6 +170,8 @@ class CaiBackend:
             (self.steam_path / 'config' / 'stplug-in').mkdir(parents=True, exist_ok=True)
             (self.steam_path / 'AppList').mkdir(parents=True, exist_ok=True)
             (self.steam_path / 'depotcache').mkdir(parents=True, exist_ok=True)
+            # Create config/depotcache for workshop manifests
+            (self.steam_path / 'config' / 'depotcache').mkdir(parents=True, exist_ok=True)
         except Exception as e:
             self.log.error(f"创建Steam子目录时失败: {e}")
 
@@ -219,7 +217,482 @@ class CaiBackend:
         except Exception:
             self.log.error(f'获取Steam路径失败。请检查Steam是否正确安装，或在config.json中设置Custom_Steam_Path。')
             return None
+
+    # NEW: HTTP helper function for safe requests with retry mechanism
+    async def http_get_safe(self, url: str, timeout: int = 30, max_retries: int = 3, retry_delay: float = 1.0) -> httpx.Response | None:
+        """安全的HTTP GET请求，带错误处理和重试机制"""
+        last_exception = None
+        
+        for attempt in range(max_retries):
+            try:
+                # Use different timeout strategies for different attempts
+                current_timeout = timeout if attempt == 0 else min(timeout * (attempt + 1), 60)
+                
+                response = await self.client.get(url, timeout=current_timeout)
+                if response.status_code == 200:
+                    if attempt > 0:  # Log successful retry
+                        self.log.info(f"HTTP请求在第 {attempt + 1} 次尝试后成功: {url}")
+                    return response
+                else:
+                    self.log.warning(f"HTTP请求失败，状态码: {response.status_code} - {url} (尝试 {attempt + 1}/{max_retries})")
+                    if response.status_code in [429, 503, 502, 504]:  # Retry on server errors
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay * (attempt + 1))
+                            continue
+                    return None
+                    
+            except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.TimeoutException) as e:
+                last_exception = e
+                self.log.warning(f"HTTP请求超时: {url} (尝试 {attempt + 1}/{max_retries}) - {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+                    continue
+                    
+            except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+                last_exception = e
+                self.log.warning(f"HTTP连接错误: {url} (尝试 {attempt + 1}/{max_retries}) - {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+                    continue
+                    
+            except Exception as e:
+                last_exception = e
+                self.log.error(f"HTTP请求异常: {url} (尝试 {attempt + 1}/{max_retries}) - {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+                    continue
+                break
+        
+        self.log.error(f"HTTP请求在 {max_retries} 次尝试后仍然失败: {url} - 最后异常: {last_exception}")
+        return None
+
+    # NEW: Updated DLC retrieval function with better error handling
+    async def get_dlc_ids_safe(self, appid: str) -> List[str]:
+        """安全的DLC ID获取函数，支持多数据源回退"""
+        self.log.info(f"正在获取 AppID {appid} 的DLC信息...")
+        
+        # 先尝试 SteamCMD API
+        self.log.debug(f"尝试从 SteamCMD API 获取 AppID {appid} 的DLC...")
+        data = await self.http_get_safe(f"https://api.steamcmd.net/v1/info/{appid}", timeout=20, max_retries=2)
+        if data:
+            try:
+                j = data.json()
+                info = j.get("data", {}).get(str(appid), {})
+                
+                # Try multiple fields for DLC information
+                dlc_str = info.get("extended", {}).get("listofdlc", "") or info.get("common", {}).get("listofdlc", "")
+                
+                if dlc_str:
+                    dlc_ids = sorted(filter(str.isdigit, map(str.strip, dlc_str.split(","))), key=int)
+                    if dlc_ids:
+                        self.log.info(f"从 SteamCMD API 成功获取到 {len(dlc_ids)} 个DLC")
+                        return dlc_ids
+                else:
+                    self.log.debug(f"SteamCMD API 中 AppID {appid} 没有DLC信息")
+                    
+            except Exception as e:
+                self.log.warning(f"解析 SteamCMD API 响应失败: {e}")
+        else:
+            self.log.warning(f"无法从 SteamCMD API 获取 AppID {appid} 的数据")
+        
+        # 降级：使用官方 API，但增加更多重试和容错
+        self.log.debug(f"尝试从 Steam 官方 API 获取 AppID {appid} 的DLC...")
+        
+        # Try different language parameters
+        api_variants = [
+            f"https://store.steampowered.com/api/appdetails?appids={appid}&l=schinese",
+            f"https://store.steampowered.com/api/appdetails?appids={appid}&l=english", 
+            f"https://store.steampowered.com/api/appdetails?appids={appid}"
+        ]
+        
+        for api_url in api_variants:
+            data = await self.http_get_safe(api_url, timeout=25, max_retries=2, retry_delay=2.0)
+            if data:
+                try:
+                    j = data.json()
+                    app_data = j.get(str(appid), {})
+                    
+                    if app_data.get("success") and "data" in app_data:
+                        dlc_list = app_data["data"].get("dlc", [])
+                        if dlc_list:
+                            dlc_ids = [str(d) for d in dlc_list]
+                            self.log.info(f"从 Steam 官方 API 成功获取到 {len(dlc_ids)} 个DLC")
+                            return dlc_ids
+                    else:
+                        self.log.debug(f"Steam 官方 API 响应中 AppID {appid} 的成功标志为false或缺少数据")
+                        
+                except Exception as e:
+                    self.log.warning(f"解析 Steam 官方 API 响应失败 ({api_url}): {e}")
+                    continue
+            else:
+                self.log.debug(f"无法从 Steam 官方 API 获取数据: {api_url}")
+        
+        self.log.info(f"未找到 AppID {appid} 的DLC信息（已尝试所有数据源）")
+        return []
+
+    # NEW: Updated depot retrieval function with better error handling
+    async def get_depots_safe(self, appid: str) -> List[Tuple[str, str, int, str]]:
+        """安全的Depot获取函数，返回 (depot_id, manifest_id, size, source) 元组列表"""
+        self.log.info(f"正在获取 AppID {appid} 的Depot信息...")
+        
+        # 先尝试 SteamCMD API
+        self.log.debug(f"尝试从 SteamCMD API 获取 AppID {appid} 的Depot...")
+        data = await self.http_get_safe(f"https://api.steamcmd.net/v1/info/{appid}", timeout=20, max_retries=2)
+        if data:
+            try:
+                j = data.json()
+                info = j.get("data", {}).get(str(appid), {})
+                depots = info.get("depots", {})
+                if depots:
+                    out = []
+                    for depot_id, depot_info in depots.items():
+                        if not isinstance(depot_info, dict):
+                            continue
+                        manifest_info = depot_info.get("manifests", {}).get("public")
+                        if not isinstance(manifest_info, dict):
+                            continue
+                        manifest_id = manifest_info.get("gid")
+                        size = int(manifest_info.get("download", 0))
+                        dlc_appid = depot_info.get("dlcappid")
+                        source = f"DLC:{dlc_appid}" if dlc_appid else "主游戏"
+                        if manifest_id:
+                            out.append((depot_id, manifest_id, size, source))
+                    if out:
+                        self.log.info(f"从 SteamCMD API 成功获取到 {len(out)} 个Depot")
+                        return out
+                else:
+                    self.log.debug(f"SteamCMD API 中 AppID {appid} 没有Depot信息")
+            except Exception as e:
+                self.log.warning(f"解析 SteamCMD API Depot 信息失败: {e}")
+        else:
+            self.log.warning(f"无法从 SteamCMD API 获取 AppID {appid} 的Depot数据")
+        
+        # 降级：使用官方 API，但增加更多重试和容错
+        self.log.debug(f"尝试从 Steam 官方 API 获取 AppID {appid} 的Depot...")
+        
+        # Try different language parameters
+        api_variants = [
+            f"https://store.steampowered.com/api/appdetails?appids={appid}&l=schinese",
+            f"https://store.steampowered.com/api/appdetails?appids={appid}&l=english",
+            f"https://store.steampowered.com/api/appdetails?appids={appid}"
+        ]
+        
+        for api_url in api_variants:
+            data = await self.http_get_safe(api_url, timeout=25, max_retries=2, retry_delay=2.0)
+            if data:
+                try:
+                    j = data.json()
+                    app_data = j.get(str(appid), {})
+                    
+                    if app_data.get("success") and "data" in app_data:
+                        depots = app_data["data"].get("depots", {})
+                        out = []
+                        for depot_id, depot_info in depots.items():
+                            if not isinstance(depot_info, dict):
+                                continue
+                            manifest_info = depot_info.get("manifests", {}).get("public")
+                            if not isinstance(manifest_info, dict):
+                                continue
+                            manifest_id = manifest_info.get("gid")
+                            size = int(manifest_info.get("download", 0))
+                            dlc_appid = depot_info.get("dlcappid")
+                            source = f"DLC:{dlc_appid}" if dlc_appid else "主游戏"
+                            if manifest_id:
+                                out.append((depot_id, manifest_id, size, source))
+                        if out:
+                            self.log.info(f"从 Steam 官方 API 成功获取到 {len(out)} 个Depot")
+                            return out
+                    else:
+                        self.log.debug(f"Steam 官方 API 响应中 AppID {appid} 的成功标志为false或缺少数据")
+                        
+                except Exception as e:
+                    self.log.warning(f"解析 Steam 官方 API Depot 信息失败 ({api_url}): {e}")
+                    continue
+            else:
+                self.log.debug(f"无法从 Steam 官方 API 获取Depot数据: {api_url}")
+        
+        self.log.info(f"未找到 AppID {appid} 的Depot信息（已尝试所有数据源）")
+        return []
+
+    # Workshop-related methods
+    def extract_workshop_id(self, input_text: str) -> str | None:
+        """Extract workshop ID from URL or direct ID input"""
+        input_text = input_text.strip()
+        if not input_text:
+            return None
+        
+        # Try to match URL pattern
+        url_match = re.search(r"https?://steamcommunity\.com/sharedfiles/filedetails/\?id=(\d+)", input_text)
+        if url_match:
+            return url_match.group(1)
+        
+        # If it's just digits, treat as direct ID
+        if input_text.isdigit():
+            return input_text
+        
+        return None
+
+    async def get_workshop_depot_info(self, workshop_id: str) -> Tuple[str, str] | Tuple[None, None]:
+        """Get depot and manifest info for workshop item"""
+        try:
+            self.log.info(f"正在查询创意工坊物品 {workshop_id} 的信息...")
+            api_url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+            data = {
+                'itemcount': 1,
+                'publishedfileids[0]': workshop_id
+            }
             
+            response = await self.client.post(api_url, data=data, timeout=30)
+            response.raise_for_status()
+            
+            result = response.json()
+            details = result['response']['publishedfiledetails'][0]
+            
+            if int(details.get('result', 0)) != 1:
+                self.log.error(f"未找到创意工坊物品 {workshop_id}")
+                return None, None
+            
+            consumer_app_id = details.get('consumer_app_id')
+            hcontent_file = details.get('hcontent_file')
+            title = details.get('title', '未知标题')
+            
+            if not consumer_app_id or not hcontent_file:
+                self.log.error(f"创意工坊物品 '{title}' 缺少必要信息")
+                return None, None
+            
+            self.log.info(f"获取信息成功: [标题: {title}] [应用ID: {consumer_app_id}] [清单ID: {hcontent_file}]")
+            return str(consumer_app_id), str(hcontent_file)
+            
+        except Exception as e:
+            self.log.error(f"获取创意工坊信息失败: {self.stack_error(e)}")
+            return None, None
+
+    async def download_workshop_manifest(self, depot_id: str, manifest_id: str) -> bytes | None:
+        """Download workshop manifest from reliable source"""
+        url = f"https://steamcontent.tnkjmec.com/depot/{depot_id}/manifest/{manifest_id}/5"
+        
+        try:
+            self.log.info(f"正在从可靠源下载清单: {url}")
+            
+            response = await self.client.get(url, timeout=60)
+            response.raise_for_status()
+            
+            # Load content into memory for processing
+            zip_in_memory = io.BytesIO(response.content)
+            
+            # Check if it's a valid ZIP file
+            if not zipfile.is_zipfile(zip_in_memory):
+                self.log.error("下载失败：服务器返回的不是有效的ZIP文件。")
+                return None
+            
+            self.log.info("文件为ZIP压缩包，正在智能提取...")
+            with zipfile.ZipFile(zip_in_memory, 'r') as zip_ref:
+                file_list = zip_ref.namelist()
+                
+                # Verify there's exactly one file in the ZIP
+                if len(file_list) != 1:
+                    self.log.error(f"下载失败：ZIP包中的文件数量不是1 (实际为: {len(file_list)})。")
+                    self.log.warning(f"包内文件列表: {file_list}")
+                    return None
+                
+                # Extract the single file (the manifest)
+                filename_inside_zip = file_list[0]
+                self.log.info(f"成功锁定ZIP包内唯一文件: '{filename_inside_zip}'")
+                
+                manifest_content = zip_ref.read(filename_inside_zip)
+                return manifest_content
+                
+        except Exception as e:
+            self.log.error(f"下载创意工坊清单时发生错误: {self.stack_error(e)}")
+            return None
+
+    async def process_workshop_item(self, workshop_input: str, copy_to_config: bool = True, copy_to_depot: bool = True) -> bool:
+        """Process workshop item and copy manifest to specified directories"""
+        workshop_id = self.extract_workshop_id(workshop_input)
+        if not workshop_id:
+            self.log.error(f"无法从输入中提取有效的创意工坊ID: {workshop_input}")
+            return False
+        
+        # Get depot and manifest info
+        depot_id, manifest_id = await self.get_workshop_depot_info(workshop_id)
+        if not depot_id or not manifest_id:
+            return False
+        
+        # Download manifest
+        manifest_content = await self.download_workshop_manifest(depot_id, manifest_id)
+        if not manifest_content:
+            return False
+        
+        # Generate filename
+        output_filename = f"{depot_id}_{manifest_id}.manifest"
+        
+        try:
+            # Copy to specified directories
+            success_count = 0
+            
+            if copy_to_config:
+                config_depot_path = self.steam_path / 'config' / 'depotcache'
+                config_file_path = config_depot_path / output_filename
+                async with aiofiles.open(config_file_path, 'wb') as f:
+                    await f.write(manifest_content)
+                self.log.info(f"清单文件已保存到: {config_file_path}")
+                success_count += 1
+            
+            if copy_to_depot:
+                depot_cache_path = self.steam_path / 'depotcache'
+                depot_file_path = depot_cache_path / output_filename
+                async with aiofiles.open(depot_file_path, 'wb') as f:
+                    await f.write(manifest_content)
+                self.log.info(f"清单文件已保存到: {depot_file_path}")
+                success_count += 1
+            
+            if success_count > 0:
+                self.log.info(f"创意工坊清单 {output_filename} 处理完成。")
+                return True
+            else:
+                self.log.error("未指定任何目标目录。")
+                return False
+                
+        except Exception as e:
+            self.log.error(f"保存创意工坊清单文件时出错: {self.stack_error(e)}")
+            return False
+
+    # NEW: DepotKey patching methods
+    async def download_depotkeys_json(self) -> Dict | None:
+        """Download depotkeys.json from SteamAutoCracks repository with mirror support"""
+        try:
+            self.log.info("正在从 SteamAutoCracks 仓库下载 depotkeys.json...")
+            
+            # Define multiple mirror URLs
+            urls = ["https://raw.githubusercontent.com/SteamAutoCracks/ManifestHub/main/depotkeys.json"]
+            
+            # Add Chinese mirrors if in China
+            if os.environ.get('IS_CN') == 'yes':
+                urls = [
+                    "https://cdn.jsdmirror.com/gh/SteamAutoCracks/ManifestHub@main/depotkeys.json",
+                    "https://raw.gitmirror.com/SteamAutoCracks/ManifestHub/main/depotkeys.json", 
+                    "https://raw.dgithub.xyz/SteamAutoCracks/ManifestHub/main/depotkeys.json",
+                    "https://gh.akass.cn/SteamAutoCracks/ManifestHub/main/depotkeys.json",
+                    "https://raw.githubusercontent.com/SteamAutoCracks/ManifestHub/main/depotkeys.json"
+                ]
+            
+            # Try each URL with retries
+            for attempt, url in enumerate(urls, 1):
+                try:
+                    self.log.info(f"尝试从源 {attempt}/{len(urls)} 下载: {url.split('/')[2]}")
+                    
+                    # Use shorter timeout for each attempt, with retries
+                    for retry in range(2):  # 2 retries per URL
+                        try:
+                            response = await self.client.get(url, timeout=15)
+                            response.raise_for_status()
+                            
+                            depotkeys_data = response.json()
+                            self.log.info(f"成功下载 depotkeys.json，包含 {len(depotkeys_data)} 个条目。(来源: {url.split('/')[2]})")
+                            return depotkeys_data
+                            
+                        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.TimeoutException) as timeout_err:
+                            if retry == 0:  # First retry
+                                self.log.warning(f"连接超时，正在重试... (源: {url.split('/')[2]})")
+                                await asyncio.sleep(1)  # Brief delay before retry
+                                continue
+                            else:
+                                raise timeout_err
+                        
+                except Exception as e:
+                    error_msg = str(e)
+                    if "timeout" in error_msg.lower() or "ConnectTimeout" in str(type(e)):
+                        self.log.warning(f"源 {url.split('/')[2]} 连接超时，尝试下一个源...")
+                    else:
+                        self.log.warning(f"源 {url.split('/')[2]} 下载失败: {error_msg}")
+                    
+                    # Don't immediately fail, try next URL
+                    if attempt < len(urls):
+                        continue
+                    else:
+                        # This was the last URL, re-raise the exception
+                        raise e
+            
+            # If we get here, all URLs failed
+            raise Exception("所有镜像源均不可用")
+            
+        except Exception as e:
+            self.log.error(f"下载 depotkeys.json 失败: {self.stack_error(e)}")
+            self.log.error("建议检查网络连接或稍后重试。")
+            return None
+
+    async def patch_lua_with_depotkey(self, app_id: str, lua_file_path: Path) -> bool:
+        """Patch LUA file with depotkey from SteamAutoCracks repository"""
+        try:
+            # Ensure network environment is detected for mirror selection
+            if 'IS_CN' not in os.environ:
+                self.log.info("检测网络环境以优化下载源选择...")
+                await self.checkcn()
+            
+            # Download depotkeys.json
+            depotkeys_data = await self.download_depotkeys_json()
+            if not depotkeys_data:
+                self.log.error("无法获取 depotkeys 数据，跳过 depotkey 修补。")
+                return False
+            
+            # Check if app_id exists in depotkeys
+            if app_id not in depotkeys_data:
+                self.log.warning(f"没有此AppID的depotkey: {app_id}")
+                return False
+            
+            depotkey = depotkeys_data[app_id]
+            
+            # FIXED: Check if depotkey is valid (not empty, not None, not just whitespace)
+            if not depotkey or not str(depotkey).strip():
+                self.log.warning(f"AppID {app_id} 的 depotkey 为空或无效，跳过修补: '{depotkey}'")
+                return False
+            
+            # Make sure depotkey is string and strip whitespace
+            depotkey = str(depotkey).strip()
+            self.log.info(f"找到 AppID {app_id} 的有效 depotkey: {depotkey}")
+            
+            # Read existing LUA file
+            if not lua_file_path.exists():
+                self.log.error(f"LUA文件不存在: {lua_file_path}")
+                return False
+            
+            async with aiofiles.open(lua_file_path, 'r', encoding='utf-8') as f:
+                lua_content = await f.read()
+            
+            # Parse lines
+            lines = lua_content.strip().split('\n')
+            new_lines = []
+            app_id_line_removed = False
+            
+            # Remove existing addappid({app_id}) line and add new one with depotkey
+            for line in lines:
+                line = line.strip()
+                # Check if this is the simple addappid line we need to replace
+                if line == f"addappid({app_id})":
+                    # Replace with depotkey version
+                    new_lines.append(f'addappid({app_id},1,"{depotkey}")')
+                    app_id_line_removed = True
+                    self.log.info(f"已替换: addappid({app_id}) -> addappid({app_id},1,\"{depotkey}\")")
+                else:
+                    new_lines.append(line)
+            
+            # If we didn't find the simple addappid line, add the depotkey version
+            if not app_id_line_removed:
+                new_lines.append(f'addappid({app_id},1,"{depotkey}")')
+                self.log.info(f"已添加新的 depotkey 条目: addappid({app_id},1,\"{depotkey}\")")
+            
+            # Write back to file
+            async with aiofiles.open(lua_file_path, 'w', encoding='utf-8') as f:
+                await f.write('\n'.join(new_lines) + '\n')
+            
+            self.log.info(f"成功修补 LUA 文件的 depotkey: {lua_file_path.name}")
+            return True
+            
+        except Exception as e:
+            self.log.error(f"修补 LUA depotkey 时出错: {self.stack_error(e)}")
+            return False
+
+    # Original methods continue...
     def restart_steam(self) -> bool:
         if not self.steam_path:
             self.log.error("无法重启 Steam：未找到 Steam 路径。")
@@ -355,31 +828,24 @@ class CaiBackend:
             self.log.error(f"从 api.steamcmd.net 获取 AppID {appid} 数据失败: {e}")
             return {}
 
+    # UPDATED: Use new safe functions for DLC retrieval
     async def _get_dlc_ids(self, appid: str) -> List[str]:
-        data = await self._get_steamcmd_api_data(appid)
-        if not data: return []
-        info = data.get("data", {}).get(str(appid), {})
-        dlc_str = (info.get("common", {}).get("listofdlc", "") or info.get("extended", {}).get("listofdlc", ""))
-        dlc_dict = info.get("dlc", {})
-        ids = set()
-        if isinstance(dlc_str, str) and dlc_str.strip():
-            ids.update(filter(str.isdigit, map(str.strip, dlc_str.split(","))))
-        if isinstance(dlc_dict, dict):
-            ids.update(dlc_dict.keys())
-        return sorted(list(ids), key=int)
+        """获取DLC ID列表，使用新的安全函数"""
+        return await self.get_dlc_ids_safe(appid)
 
+    # UPDATED: Use new safe functions for depot retrieval  
     async def _get_depots(self, appid: str) -> List[Dict]:
-        data = await self._get_steamcmd_api_data(appid)
-        if not data: return []
-        info = data.get("data", {}).get(str(appid), {})
-        depots = info.get("depots", {})
-        out = []
-        for depot_id, depot_info in depots.items():
-            if not isinstance(depot_info, dict): continue
-            manifest_info = depot_info.get("manifests", {}).get("public")
-            if not isinstance(manifest_info, dict): continue
-            out.append({"depot_id": depot_id, "size": int(manifest_info.get("download", 0)), "dlc_appid": depot_info.get("dlcappid")})
-        return out
+        """获取Depot信息列表，转换为旧格式兼容"""
+        depot_tuples = await self.get_depots_safe(appid)
+        # Convert to old format for compatibility
+        return [
+            {
+                "depot_id": depot_id,
+                "size": size,
+                "dlc_appid": source.split(':')[1] if source.startswith('DLC:') else None
+            }
+            for depot_id, manifest_id, size, source in depot_tuples
+        ]
 
     async def _add_free_dlcs_to_lua(self, app_id: str, lua_filepath: Path):
         self.log.info(f"开始为 AppID {app_id} 查找无密钥/无Depot的DLC...")
@@ -435,7 +901,8 @@ class CaiBackend:
         except Exception as e:
             self.log.error(f"添加无密钥DLC时出错: {self.stack_error(e)}")
 
-    async def _process_zip_manifest_generic(self, app_id: str, download_url: str, source_name: str, unlocker_type: str, use_st_auto_update: bool, add_all_dlc: bool) -> bool:
+    # MODIFIED: Added patch_depot_key parameter
+    async def _process_zip_manifest_generic(self, app_id: str, download_url: str, source_name: str, unlocker_type: str, use_st_auto_update: bool, add_all_dlc: bool, patch_depot_key: bool = False) -> bool:
         zip_path = self.temp_path / f'{app_id}.zip'
         extract_path = self.temp_path / app_id
         try:
@@ -487,6 +954,11 @@ class CaiBackend:
                 if add_all_dlc:
                     await self._add_free_dlcs_to_lua(app_id, lua_filepath)
 
+                # NEW: Apply depotkey patch if requested
+                if patch_depot_key:
+                    self.log.info("开始修补创意工坊depotkey...")
+                    await self.patch_lua_with_depotkey(app_id, lua_filepath)
+
             else:
                 self.log.info(f'检测到 GreenLuma/标准模式，将处理来自 {source_name} 的文件。')
                 if not manifest_files:
@@ -514,7 +986,8 @@ class CaiBackend:
             if zip_path.exists(): zip_path.unlink(missing_ok=True)
             if extract_path.exists(): shutil.rmtree(extract_path)
 
-    async def process_zip_source(self, app_id: str, tool_type: str, unlocker_type: str, use_st_auto_update: bool, add_all_dlc: bool) -> bool:
+    # MODIFIED: Added patch_depot_key parameter
+    async def process_zip_source(self, app_id: str, tool_type: str, unlocker_type: str, use_st_auto_update: bool, add_all_dlc: bool, patch_depot_key: bool = False) -> bool:
         source_map = {
             "printedwaste": "https://api.printedwaste.com/gfk/download/{app_id}",
             "cysaw": "https://cysaw.top/uploads/{app_id}.zip",
@@ -529,7 +1002,7 @@ class CaiBackend:
             self.log.error(f"未知的压缩包源: {tool_type}")
             return False
         download_url = url_template.format(app_id=app_id)
-        return await self._process_zip_manifest_generic(app_id, download_url, source_name, unlocker_type, use_st_auto_update, add_all_dlc)
+        return await self._process_zip_manifest_generic(app_id, download_url, source_name, unlocker_type, use_st_auto_update, add_all_dlc, patch_depot_key)
 
     async def fetch_branch_info(self, url: str, headers: Dict) -> Dict | None:
         try:
@@ -563,7 +1036,8 @@ class CaiBackend:
                 return {'repo': repo, 'sha': r_json['commit']['sha'], 'tree': r2_json['tree'], 'update_date': r_json["commit"]["commit"]["author"]["date"]}
         return None
 
-    async def process_github_manifest(self, app_id: str, repo: str, unlocker_type: str, use_st_auto_update: bool, add_all_dlc: bool) -> bool:
+    # MODIFIED: Added patch_depot_key parameter
+    async def process_github_manifest(self, app_id: str, repo: str, unlocker_type: str, use_st_auto_update: bool, add_all_dlc: bool, patch_depot_key: bool = False) -> bool:
         github_token = self.config.get("Github_Personal_Token", "")
         headers = {'Authorization': f'Bearer {github_token}'} if github_token else None
         
@@ -630,6 +1104,11 @@ class CaiBackend:
             
             if add_all_dlc:
                 await self._add_free_dlcs_to_lua(app_id, lua_filepath)
+
+            # NEW: Apply depotkey patch if requested
+            if patch_depot_key:
+                self.log.info("开始修补创意工坊depotkey...")
+                await self.patch_lua_with_depotkey(app_id, lua_filepath)
 
         else:
             self.log.info("检测到 GreenLuma/标准模式，将复制 .manifest 文件到 depotcache。")
