@@ -1,4 +1,4 @@
-# --- START OF FILE app.py (MODIFIED WITH WORKSHOP SUPPORT AND DEPOTKEY PATCH) ---
+# --- START OF FILE app.py (MODIFIED WITH AUTO-UPDATE AND CUSTOM REPOS) ---
 
 import asyncio
 import os
@@ -17,7 +17,7 @@ from flask_socketio import SocketIO, emit
 import tkinter as tk
 from tkinter import ttk
 
-# --- Console Management ---
+
 if sys.platform == 'win32':
     import ctypes
     
@@ -66,6 +66,7 @@ except ImportError as e:
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'cai-install-gui-secret-key-v2'
 app.config['USER_DATA_FOLDER'] = project_root / 'userdata'
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # --- GUI Port Prompt ---
@@ -96,6 +97,7 @@ def get_port_from_gui():
     root.bind('<Return>', lambda event: on_ok())
     root.mainloop()
     return result['port']
+
 
 # --- Pre-startup Config Check ---
 def should_show_console_on_startup():
@@ -156,6 +158,70 @@ async def initialize_app():
         dummy_backend.log.error(dummy_backend.stack_error(e))
         return jsonify({"success": False, "message": message})
 
+# NEW: Auto-update check endpoint
+@app.route('/api/check_updates', methods=['POST'])
+async def check_updates():
+    try:
+        async with CaiBackend() as backend:
+            patch_log_for_socketio(backend.log)
+            await backend.initialize()
+            
+            has_update, update_info = await backend.check_for_updates()
+            
+            return jsonify({
+                "success": True,
+                "has_update": has_update,
+                "update_info": update_info
+            })
+    except Exception as e:
+        dummy_backend = CaiBackend()
+        message = f"检查更新失败: {str(e)}"
+        dummy_backend.log.error(dummy_backend.stack_error(e))
+        return jsonify({"success": False, "message": message})
+
+# NEW: Get available sources (including custom repos)
+@app.route('/api/sources', methods=['GET'])
+async def get_sources():
+    try:
+        async with CaiBackend() as backend:
+            await backend.initialize()
+            
+            # Built-in sources
+            builtin_sources = {
+                "自动搜索GitHub": "search",
+                "SWA V2": "printedwaste", 
+                "Cysaw": "cysaw",
+                "Furcate": "furcate",
+                "CNGS": "assiw",
+                "steamdatabase": "steamdatabase",
+                "GitHub (Auiowu)": "Auiowu/ManifestAutoUpdate",
+                "GitHub (SAC)": "SteamAutoCracks/ManifestHub"
+            }
+            
+            # Custom sources
+            custom_github_repos = backend.get_custom_github_repos()
+            custom_zip_repos = backend.get_custom_zip_repos()
+            
+            # Add custom GitHub repos
+            for repo in custom_github_repos:
+                builtin_sources[f"{repo['name']} (自定义GitHub)"] = repo['repo']
+            
+            # Add custom ZIP repos  
+            for repo in custom_zip_repos:
+                builtin_sources[f"{repo['name']} (自定义ZIP)"] = f"custom_zip_{repo['name']}"
+            
+            return jsonify({
+                "success": True,
+                "sources": builtin_sources,
+                "custom_github_count": len(custom_github_repos),
+                "custom_zip_count": len(custom_zip_repos)
+            })
+    except Exception as e:
+        dummy_backend = CaiBackend()
+        message = f"获取清单源失败: {str(e)}"
+        dummy_backend.log.error(dummy_backend.stack_error(e))
+        return jsonify({"success": False, "message": message})
+
 async def _run_search_game_task(game_name):
     async with CaiBackend() as backend:
         patch_log_for_socketio(backend.log)
@@ -198,7 +264,8 @@ async def _run_unlock_task(app_id, tool_type, use_st_auto_update, add_all_dlc, p
             raise Exception(f"无法从 '{app_id}' 中提取有效AppID。请输入有效的AppID或链接。")
         if tool_type == "search":
             backend.log.info(f"正在所有 GitHub 仓库中搜索 AppID: {app_id_extracted}...")
-            results = await backend.search_all_repos_for_appid(app_id_extracted, ['Auiowu/ManifestAutoUpdate', 'SteamAutoCracks/ManifestHub'])
+            # MODIFIED: Use all repos including custom ones
+            results = await backend.search_all_repos_for_appid(app_id_extracted)
             if not results:
                 raise Exception(f"在所有 GitHub 仓库中都未找到 AppID {app_id_extracted} 的清单。")
             TASK_STATE["result"] = {
@@ -209,7 +276,11 @@ async def _run_unlock_task(app_id, tool_type, use_st_auto_update, add_all_dlc, p
             return
         backend.log.info(f"--- 正在使用源 '{tool_type}' 处理 AppID: {app_id_extracted} ---")
         zip_sources = ["printedwaste", "cysaw", "furcate", "assiw", "steamdatabase"]
-        if tool_type in zip_sources:
+        
+        # Check for custom zip sources
+        if tool_type.startswith("custom_zip_"):
+            success = await backend.process_zip_source(app_id_extracted, tool_type, unlocker_type, use_st_auto_update, add_all_dlc, patch_depot_key)
+        elif tool_type in zip_sources:
             success = await backend.process_zip_source(app_id_extracted, tool_type, unlocker_type, use_st_auto_update, add_all_dlc, patch_depot_key)
         else:
             success = await backend.process_github_manifest(app_id_extracted, tool_type, unlocker_type, use_st_auto_update, add_all_dlc, patch_depot_key)
@@ -344,6 +415,8 @@ def get_detailed_config():
             "background_brightness": config.get("background_brightness", 100),
             "show_console_on_startup": config.get("show_console_on_startup", False),
             "force_unlocker_type": config.get("force_unlocker_type", "auto"),
+            # NEW: 添加自定义清单库配置
+            "custom_repos": config.get("Custom_Repos", {"github": [], "zip": []}),
         }})
     except Exception as e:
         return jsonify({"success": False, "message": f"加载详细配置失败: {e}"})
@@ -370,6 +443,10 @@ async def update_config():
             if key in data:
                 config_key = key_map.get(key, key)
                 current_config[config_key] = data[key]
+
+        # NEW: 处理自定义清单库配置
+        if "custom_repos" in data:
+            current_config["Custom_Repos"] = data["custom_repos"]
 
         with open(config_path, 'w', encoding='utf-8') as f: standard_json.dump(current_config, f, indent=2, ensure_ascii=False)
         return jsonify({"success": True, "message": "配置已保存。"})
