@@ -87,7 +87,7 @@ body.dark-theme .status-indicator.warning {
     }
 }
 
-/* **** 新增样式：用于Token可见性切换 **** */
+/* **** Token可见性切换样式 **** */
 .input-with-button {
     position: relative;
     display: flex;
@@ -101,28 +101,319 @@ body.dark-theme .status-indicator.warning {
 }
 
 .btn-icon {
-    position: absolute;
-    right: 0;
-    top: 50%;
-    transform: translateY(-50%);
+    position: relative;
     background: none;
     border: none;
     cursor: pointer;
     color: var(--md-sys-color-on-surface-variant);
-    padding: 10px;
+    padding: 8px;
     border-radius: 50%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: background-color 0.2s ease;
+    transition: background-color 0.2s ease, transform 0.2s ease;
+    min-width: 40px;
+    min-height: 40px;
+}
+
+/* Token输入框右侧的按钮 */
+.input-with-button .btn-icon {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
 }
 
 .btn-icon:hover {
     background-color: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 15%, transparent);
+    transform: scale(1.05);
+}
+
+/* 删除按钮特殊样式 */
+.repo-delete-btn {
+    background-color: transparent !important;
+    color: var(--md-sys-color-error) !important;
+    transition: all 0.2s ease;
+}
+
+.repo-delete-btn:hover {
+    background-color: color-mix(in srgb, var(--md-sys-color-error) 12%, transparent) !important;
+    transform: scale(1.1) !important;
+}
+
+.repo-delete-btn .material-icons {
+    font-size: 20px;
 }
 
 /* 当Token可见时，使用等宽字体，方便查看 */
 .token-visible {
     font-family: 'Courier New', Courier, monospace;
 }
-/* *************************************** */
+
+/* **** 新增：模态框样式 **** */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.modal-overlay.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-content {
+    background-color: var(--md-sys-color-surface);
+    border-radius: var(--md-sys-shape-corner-large);
+    box-shadow: var(--md-sys-elevation-shadow-5);
+    max-width: 500px;
+    width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    transform: scale(0.9) translateY(20px);
+    transition: transform 0.3s ease;
+}
+
+.modal-overlay.show .modal-content {
+    transform: scale(1) translateY(0);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-footer {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    padding: 16px 24px 24px;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* **** 新增：自定义仓库样式 **** */
+.repo-section {
+    margin-top: 24px;
+}
+
+.repo-section h3 {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+}
+
+.repos-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.repo-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background-color: var(--md-sys-color-surface-variant);
+    border-radius: var(--md-sys-shape-corner-medium);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.repo-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.repo-info {
+    flex: 1;
+    min-width: 0; /* 允许内容收缩 */
+}
+
+.repo-name {
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+    margin-bottom: 4px;
+    font-size: 14px;
+}
+
+.repo-path {
+    font-size: 13px;
+    color: var(--md-sys-color-on-surface-variant);
+    word-break: break-all; /* 防止长URL溢出 */
+    opacity: 0.8;
+}
+
+.repo-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: 16px;
+    flex-shrink: 0; /* 防止按钮被压缩 */
+}
+
+.empty-repos {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    color: var(--md-sys-color-on-surface-variant);
+    text-align: center;
+}
+
+.empty-repos .material-icons {
+    font-size: 48px;
+    margin-bottom: 8px;
+    opacity: 0.7;
+}
+
+.empty-repos p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* **** 新增：更新相关样式 **** */
+.update-info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.update-info-item:last-child {
+    border-bottom: none;
+}
+
+.update-info-label {
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+}
+
+.update-info-value {
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.update-info-value.version {
+    font-family: 'Courier New', Courier, monospace;
+    background-color: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+    padding: 2px 8px;
+    border-radius: var(--md-sys-shape-corner-small);
+    font-size: 12px;
+}
+
+/* **** 动画效果 **** */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@media (max-width: 768px) {
+    .modal-content {
+        width: 95vw;
+        margin: 20px;
+    }
+    
+    .modal-header {
+        padding: 16px 20px;
+    }
+    
+    .modal-body {
+        padding: 20px;
+    }
+    
+    .modal-footer {
+        padding: 12px 20px 20px;
+        flex-direction: column;
+    }
+    
+    .repo-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    
+    .repo-actions {
+        margin-left: 0;
+        justify-content: flex-end;
+    }
+}
+
+.card-actions .btn {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    z-index: 10;
+    position: relative;
+}
+
+.card-actions .btn:disabled {
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
+/* 确保按钮内的图标和文字不会阻止点击事件 */
+.card-actions .btn .material-icons,
+.card-actions .btn .settings-text {
+    pointer-events: none;
+}
+
+/* 防止按钮被其他元素遮挡 */
+.card-header {
+    position: relative;
+    z-index: 1;
+}
+
+.card-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    z-index: 10;
+    position: relative;
+}
+
+/* 确保按钮有足够的点击区域 */
+.card-actions .btn {
+    min-height: 40px;
+    min-width: 120px;
+    padding: 8px 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+/* 响应鼠标悬停 */
+.card-actions .btn:hover {
+    background-color: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent);
+    transform: translateY(-1px);
+    transition: all 0.2s ease;
+}
