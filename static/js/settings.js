@@ -1,4 +1,4 @@
-// --- START OF FILE static/js/settings.js (FINAL VERSION) ---
+// --- START OF FILE static/js/settings.js (MODIFIED WITH CUSTOM REPOS AND AUTO-UPDATE) ---
 class SettingsManager {
     constructor() {
         this.elements = {
@@ -15,11 +15,36 @@ class SettingsManager {
             toggleTokenBtn: document.getElementById('toggleTokenBtn'),
             tokenVisibilityIcon: document.getElementById('tokenVisibilityIcon'),
             toggleConsoleBtn: document.getElementById('toggleConsoleBtn'),
-            // 新增: 启动时显示控制台的复选框
             showConsoleOnStartup: document.getElementById('showConsoleOnStartup'),
-            // **** 新增: 强制解锁工具的单选框 ****
             forceUnlockerRadios: document.querySelectorAll('input[name="forceUnlocker"]'),
+            // NEW: 自定义清单库相关元素
+            checkUpdatesBtn: document.getElementById('checkUpdatesBtn'),
+            addGithubRepoBtn: document.getElementById('addGithubRepoBtn'),
+            addZipRepoBtn: document.getElementById('addZipRepoBtn'),
+            githubReposList: document.getElementById('githubReposList'),
+            zipReposList: document.getElementById('zipReposList'),
+            // 模态框元素
+            addRepoModal: document.getElementById('addRepoModal'),
+            repoModalTitle: document.getElementById('repoModalTitle'),
+            repoName: document.getElementById('repoName'),
+            repoPath: document.getElementById('repoPath'),
+            repoUrl: document.getElementById('repoUrl'),
+            repoPathGroup: document.getElementById('repoPathGroup'),
+            repoUrlGroup: document.getElementById('repoUrlGroup'),
+            cancelRepoBtn: document.getElementById('cancelRepoBtn'),
+            saveRepoBtn: document.getElementById('saveRepoBtn'),
+            // 更新相关模态框
+            updateModal: document.getElementById('updateModal'),
+            updateInfo: document.getElementById('updateInfo'),
+            updateChangelog: document.getElementById('updateChangelog'),
+            downloadUpdateBtn: document.getElementById('downloadUpdateBtn'),
+            laterUpdateBtn: document.getElementById('laterUpdateBtn'),
+            ignoreUpdateBtn: document.getElementById('ignoreUpdateBtn'),
         };
+        
+        this.currentRepoType = 'github'; // 'github' or 'zip'
+        this.customRepos = { github: [], zip: [] };
+        
         this.initialize();
     }
 
@@ -34,6 +59,28 @@ class SettingsManager {
         if (this.elements.toggleConsoleBtn) {
             this.elements.toggleConsoleBtn.addEventListener('click', () => this.toggleConsole());
         }
+
+        // NEW: 自定义清单库事件监听器
+        this.elements.checkUpdatesBtn.addEventListener('click', () => this.checkForUpdates());
+        this.elements.addGithubRepoBtn.addEventListener('click', () => this.showAddRepoModal('github'));
+        this.elements.addZipRepoBtn.addEventListener('click', () => this.showAddRepoModal('zip'));
+        
+        // 模态框事件监听器
+        this.elements.saveRepoBtn.addEventListener('click', () => this.saveRepo());
+        this.elements.cancelRepoBtn.addEventListener('click', () => this.hideAddRepoModal());
+        
+        // 更新模态框事件监听器
+        this.elements.laterUpdateBtn.addEventListener('click', () => this.hideUpdateModal());
+        this.elements.downloadUpdateBtn.addEventListener('click', () => this.downloadUpdate());
+        this.elements.ignoreUpdateBtn.addEventListener('click', () => this.ignoreUpdate());
+        
+        // 点击模态框背景关闭
+        this.elements.addRepoModal.addEventListener('click', (e) => {
+            if (e.target === this.elements.addRepoModal) this.hideAddRepoModal();
+        });
+        this.elements.updateModal.addEventListener('click', (e) => {
+            if (e.target === this.elements.updateModal) this.hideUpdateModal();
+        });
     }
 
     async toggleConsole() {
@@ -91,6 +138,247 @@ class SettingsManager {
         }
     }
 
+    // NEW: 检查更新功能
+    async checkForUpdates() {
+        const btn = this.elements.checkUpdatesBtn;
+        const originalContent = btn.innerHTML;
+        
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-icons spin">hourglass_top</span> 检查中...';
+        
+        try {
+            const response = await fetch('/api/check_updates', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.success) {
+                if (data.has_update) {
+                    this.showUpdateModal(data.update_info);
+                } else {
+                    this.showSnackbar('当前已是最新版本！', 'success');
+                }
+            } else {
+                this.showSnackbar(`检查更新失败: ${data.message}`, 'error');
+            }
+        } catch (error) {
+            this.showSnackbar(`检查更新时出错: ${error.message}`, 'error');
+        } finally {
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalContent;
+            }, 1000);
+        }
+    }
+
+    // NEW: 显示更新模态框
+    showUpdateModal(updateInfo) {
+        // 生成更新信息
+        const infoHtml = `
+            <div class="update-info-item">
+                <span class="update-info-label">当前版本:</span>
+                <span class="update-info-value version">${updateInfo.current_version}</span>
+            </div>
+            <div class="update-info-item">
+                <span class="update-info-label">最新版本:</span>
+                <span class="update-info-value version">${updateInfo.latest_version}</span>
+            </div>
+            <div class="update-info-item">
+                <span class="update-info-label">发布时间:</span>
+                <span class="update-info-value">${new Date(updateInfo.published_at).toLocaleString('zh-CN')}</span>
+            </div>
+        `;
+        this.elements.updateInfo.innerHTML = infoHtml;
+        
+        // 生成更新日志
+        this.elements.updateChangelog.textContent = updateInfo.release_body || '暂无更新日志';
+        
+        // 保存更新信息到模态框
+        this.elements.updateModal.dataset.updateUrl = updateInfo.release_url;
+        this.elements.updateModal.dataset.latestVersion = updateInfo.latest_version;
+        
+        this.elements.updateModal.classList.add('show');
+    }
+
+    hideUpdateModal() {
+        this.elements.updateModal.classList.remove('show');
+    }
+
+    downloadUpdate() {
+        const updateUrl = this.elements.updateModal.dataset.updateUrl;
+        if (updateUrl) {
+            window.open(updateUrl, '_blank');
+            this.hideUpdateModal();
+        }
+    }
+
+    ignoreUpdate() {
+        const latestVersion = this.elements.updateModal.dataset.latestVersion;
+        if (latestVersion) {
+            // 这里可以保存忽略的版本信息到本地存储
+            localStorage.setItem('ignoredVersion', latestVersion);
+            this.showSnackbar(`已忽略版本 ${latestVersion}`, 'info');
+        }
+        this.hideUpdateModal();
+    }
+
+    // NEW: 显示添加仓库模态框
+    showAddRepoModal(type) {
+        this.currentRepoType = type;
+        
+        if (type === 'github') {
+            this.elements.repoModalTitle.textContent = '添加GitHub仓库';
+            this.elements.repoPathGroup.style.display = 'block';
+            this.elements.repoUrlGroup.style.display = 'none';
+            this.elements.repoPath.placeholder = '例如：username/repository';
+        } else {
+            this.elements.repoModalTitle.textContent = '添加ZIP清单库';
+            this.elements.repoPathGroup.style.display = 'none';
+            this.elements.repoUrlGroup.style.display = 'block';
+            this.elements.repoUrl.placeholder = '例如：https://example.com/download/{app_id}.zip';
+        }
+        
+        // 清空表单
+        this.elements.repoName.value = '';
+        this.elements.repoPath.value = '';
+        this.elements.repoUrl.value = '';
+        
+        this.elements.addRepoModal.classList.add('show');
+        this.elements.repoName.focus();
+    }
+
+    hideAddRepoModal() {
+        this.elements.addRepoModal.classList.remove('show');
+    }
+
+    // NEW: 保存仓库
+    saveRepo() {
+        const name = this.elements.repoName.value.trim();
+        
+        if (!name) {
+            this.showSnackbar('请输入显示名称', 'error');
+            return;
+        }
+        
+        let repoData;
+        if (this.currentRepoType === 'github') {
+            const path = this.elements.repoPath.value.trim();
+            if (!path) {
+                this.showSnackbar('请输入仓库路径', 'error');
+                return;
+            }
+            if (!path.includes('/')) {
+                this.showSnackbar('GitHub仓库路径格式应为：用户名/仓库名', 'error');
+                return;
+            }
+            repoData = { name, repo: path };
+        } else {
+            const url = this.elements.repoUrl.value.trim();
+            if (!url) {
+                this.showSnackbar('请输入下载URL', 'error');
+                return;
+            }
+            if (!url.includes('{app_id}')) {
+                this.showSnackbar('URL必须包含{app_id}占位符', 'error');
+                return;
+            }
+            repoData = { name, url };
+        }
+        
+        // 检查是否重复
+        const existingRepos = this.customRepos[this.currentRepoType];
+        const isDuplicate = existingRepos.some(repo => 
+            repo.name === name || 
+            (this.currentRepoType === 'github' && repo.repo === repoData.repo) ||
+            (this.currentRepoType === 'zip' && repo.url === repoData.url)
+        );
+        
+        if (isDuplicate) {
+            this.showSnackbar('仓库已存在', 'error');
+            return;
+        }
+        
+        // 添加到列表
+        this.customRepos[this.currentRepoType].push(repoData);
+        this.renderReposList();
+        this.hideAddRepoModal();
+        this.showSnackbar(`成功添加${this.currentRepoType === 'github' ? 'GitHub仓库' : 'ZIP清单库'}`, 'success');
+        
+        // FIXED: 添加保存配置调用
+        this.saveConfig().then(() => {
+            console.log('自定义仓库配置已保存到服务器');
+        }).catch(error => {
+            console.error('保存自定义仓库配置失败:', error);
+            this.showSnackbar('保存配置失败，请重试', 'error');
+        });
+    }
+
+    // NEW: 删除仓库
+    removeRepo(type, index) {
+        if (confirm('确定要删除这个仓库吗？')) {
+            this.customRepos[type].splice(index, 1);
+            this.renderReposList();
+            this.showSnackbar('仓库已删除', 'success');
+            
+            // FIXED: 添加保存配置调用
+            this.saveConfig().then(() => {
+                console.log('删除仓库后配置已保存到服务器');
+            }).catch(error => {
+                console.error('保存删除仓库配置失败:', error);
+                this.showSnackbar('保存配置失败，请重试', 'error');
+            });
+        }
+    }
+
+    // NEW: 渲染仓库列表
+    renderReposList() {
+        // 渲染GitHub仓库列表
+        this.renderReposListByType('github', this.elements.githubReposList);
+        // 渲染ZIP仓库列表
+        this.renderReposListByType('zip', this.elements.zipReposList);
+    }
+
+    renderReposListByType(type, container) {
+        const repos = this.customRepos[type];
+        
+        if (repos.length === 0) {
+            container.innerHTML = `
+                <div class="empty-repos">
+                    <span class="material-icons">folder_open</span>
+                    <p>暂无${type === 'github' ? 'GitHub仓库' : 'ZIP清单库'}</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = repos.map((repo, index) => `
+            <div class="repo-item" data-repo-type="${type}" data-repo-index="${index}">
+                <div class="repo-info">
+                    <div class="repo-name">${repo.name}</div>
+                    <div class="repo-path">${type === 'github' ? repo.repo : repo.url}</div>
+                </div>
+                <div class="repo-actions">
+                    <button class="btn-icon repo-delete-btn" title="删除">
+                        <span class="material-icons">delete</span>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        // FIXED: 为每个删除按钮添加事件监听器，而不是使用onclick属性
+        container.querySelectorAll('.repo-delete-btn').forEach((btn) => {
+            btn.addEventListener('click', (event) => {
+                event.stopPropagation(); // 防止事件冒泡
+                
+                // 从按钮的父级元素获取数据属性
+                const repoItem = btn.closest('.repo-item');
+                const repoType = repoItem.dataset.repoType;
+                const repoIndex = parseInt(repoItem.dataset.repoIndex, 10);
+                
+                console.log(`删除仓库: ${repoType}[${repoIndex}]`);
+                this.removeRepo(repoType, repoIndex);
+            });
+        });
+    }
+
     async loadConfig() {
         try {
             const response = await fetch('/api/config/detailed');
@@ -103,12 +391,15 @@ class SettingsManager {
                 this.elements.loggingFiles.checked = data.config.logging_files !== false;
                 this.elements.showConsoleOnStartup.checked = data.config.show_console_on_startup || false;
 
-                // **** 新增: 加载强制解锁工具设置 ****
+                // 加载强制解锁工具设置
                 const forceUnlockerValue = data.config.force_unlocker_type || 'auto';
                 this.elements.forceUnlockerRadios.forEach(radio => {
                     radio.checked = radio.value === forceUnlockerValue;
                 });
-                // **********************************
+
+                // NEW: 加载自定义清单库配置
+                this.customRepos = data.config.custom_repos || { github: [], zip: [] };
+                this.renderReposList();
 
                 this.validateSteamPath(data.config.steam_path_is_auto || false);
             } else {
@@ -120,10 +411,9 @@ class SettingsManager {
     }
 
     async saveConfig() {
-        // **** 新增: 获取强制解锁工具设置 ****
+        // 获取强制解锁工具设置
         const selectedUnlockerRadio = document.querySelector('input[name="forceUnlocker"]:checked');
         const forceUnlockerValue = selectedUnlockerRadio ? selectedUnlockerRadio.value : 'auto';
-        // **********************************
 
         const config = {
             github_token: this.elements.githubToken.value.trim(),
@@ -131,8 +421,9 @@ class SettingsManager {
             debug_mode: this.elements.debugMode.checked,
             logging_files: this.elements.loggingFiles.checked,
             show_console_on_startup: this.elements.showConsoleOnStartup.checked,
-            // **** 新增: 保存新选项的状态 ****
             force_unlocker_type: forceUnlockerValue,
+            // NEW: 保存自定义清单库配置
+            custom_repos: this.customRepos,
         };
 
         try {
@@ -181,6 +472,9 @@ class SettingsManager {
     }
 }
 
+// 创建全局实例以便在HTML中调用
+let settingsManager;
+
 document.addEventListener('DOMContentLoaded', () => {
-    new SettingsManager();
+    settingsManager = new SettingsManager();
 });
