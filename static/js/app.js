@@ -1,4 +1,4 @@
-// --- START OF FILE static/js/app.js (MODIFIED WITH WORKSHOP SUPPORT AND DEPOTKEY PATCH) ---
+
 
 class CaiWebApp {
     constructor() {
@@ -9,7 +9,7 @@ class CaiWebApp {
         this.pollTimeout = null;
         this.stAutoUpdateContext = null; 
         this.addAllDlcContext = null;
-        this.patchDepotKeyContext = null; // NEW: 添加depotkey修补上下文
+        this.patchDepotKeyContext = null; // NEW: 添加 depotkey修补上下文
         this.isWorkshopMode = false;
         this.initialize();
     }
@@ -28,7 +28,7 @@ class CaiWebApp {
             searchResultsContainer: document.getElementById('searchResultsContainer'),
             stAutoUpdateGroup: document.getElementById('stAutoUpdateGroup'),
             addAllDlcGroup: document.getElementById('addAllDlcGroup'),
-            patchDepotKeyGroup: document.getElementById('patchDepotKeyGroup'), // NEW: 添加depotkey修补组
+            patchDepotKeyGroup: document.getElementById('patchDepotKeyGroup'), // NEW: 添加 depotkey修补组
             progressContainer: document.getElementById('progressContainer'),
             clearLogBtn: document.getElementById('clearLogBtn'),
             snackbar: document.getElementById('snackbar'),
@@ -203,7 +203,7 @@ class CaiWebApp {
                 this.elements.addAllDlcGroup.style.display = showStOptions ? 'block' : 'none';
                 this.elements.patchDepotKeyGroup.style.display = showStOptions ? 'block' : 'none'; // NEW: 显示depotkey修补选项
                 
-                this.loadSources();
+                await this.loadSources();
             } else {
                 this.elements.configStatus.innerHTML = `<div class="status-item error"><span class="material-icons status-icon">error</span><span class="status-text">后端错误: ${data.message}</span></div>`;
             }
@@ -229,11 +229,69 @@ class CaiWebApp {
         return items.join('');
     }
 
-    loadSources() {
-        const sources = { "自动搜索GitHub": "search", "SWA V2": "printedwaste", "Cysaw": "cysaw", "Furcate": "furcate", "CNGS": "assiw", "steamdatabase": "steamdatabase", "GitHub (Auiowu)": "Auiowu/ManifestAutoUpdate", "GitHub (SAC)": "SteamAutoCracks/ManifestHub" };
-        let html = '';
-        Object.entries(sources).forEach(([name, value], index) => { html += `<label class="radio-item"><input type="radio" name="toolType" value="${value}" ${index === 0 ? 'checked' : ''}><span class="radio-button"></span><span class="radio-label">${name}</span></label>`; });
-        this.elements.toolTypeGroup.innerHTML = html;
+    // FIXED: 修复后的 loadSources 方法，从后端获取包含自定义仓库的完整源列表
+    async loadSources() {
+        try {
+            // 显示加载状态
+            this.elements.toolTypeGroup.innerHTML = '<div class="loading">正在加载清单源...</div>';
+            
+            // 从后端获取所有可用的源（包括自定义仓库）
+            const response = await fetch('/api/sources');
+            if (!response.ok) throw new Error(`Server responded with ${response.status}`);
+            
+            const data = await response.json();
+            if (data.success) {
+                const sources = data.sources;
+                let html = '';
+                let isFirst = true;
+                
+                // 生成单选按钮列表
+                Object.entries(sources).forEach(([name, value]) => {
+                    html += `<label class="radio-item">
+                        <input type="radio" name="toolType" value="${value}" ${isFirst ? 'checked' : ''}>
+                        <span class="radio-button"></span>
+                        <span class="radio-label">${name}</span>
+                    </label>`;
+                    isFirst = false;
+                });
+                
+                this.elements.toolTypeGroup.innerHTML = html;
+                
+                // 如果有自定义仓库，显示提示信息
+                const customCount = (data.custom_github_count || 0) + (data.custom_zip_count || 0);
+                if (customCount > 0) {
+                    console.log(`已加载 ${customCount} 个自定义清单源`);
+                    this.showSnackbar(`已加载 ${customCount} 个自定义清单源`, 'success');
+                }
+            } else {
+                throw new Error(data.message || '获取清单源失败');
+            }
+        } catch (error) {
+            console.error('加载清单源失败:', error);
+            // 回退到硬编码的内置源
+            const fallbackSources = {
+                "自动搜索GitHub": "search",
+                "SWA V2": "printedwaste",
+                "Cysaw": "cysaw",
+                "Furcate": "furcate",
+                "CNGS": "assiw",
+                "steamdatabase": "steamdatabase",
+                "GitHub (Auiowu)": "Auiowu/ManifestAutoUpdate",
+                "GitHub (SAC)": "SteamAutoCracks/ManifestHub"
+            };
+            
+            let html = '';
+            Object.entries(fallbackSources).forEach(([name, value], index) => {
+                html += `<label class="radio-item">
+                    <input type="radio" name="toolType" value="${value}" ${index === 0 ? 'checked' : ''}>
+                    <span class="radio-button"></span>
+                    <span class="radio-label">${name}</span>
+                </label>`;
+            });
+            
+            this.elements.toolTypeGroup.innerHTML = html;
+            this.showSnackbar('加载自定义清单源失败，使用默认源', 'warning');
+        }
     }
 
     async searchGame() {
@@ -358,7 +416,7 @@ class CaiWebApp {
         let toolType = formData.get('toolType');
         let useStAutoUpdate;
         let addAllDlc;
-        let patchDepotKey; // NEW: 添加depotkey修补参数
+        let patchDepotKey; // NEW: 添加 depotkey修补参数
 
         const searchResultChoice = document.querySelector('input[name="searchResult"]:checked');
         if (searchResultChoice) {
