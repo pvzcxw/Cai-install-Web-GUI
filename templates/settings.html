@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -20,6 +19,12 @@
             </button>
             <span class="material-icons app-icon">settings</span>
             <h1 class="app-title">设置</h1>
+            <div class="card-actions">
+                <button class="btn btn-text" id="checkUpdatesBtn" title="检查更新">
+                    <span class="material-icons">system_update</span>
+                    <span class="settings-text">检查更新</span>
+                </button>
+            </div>
         </div>
     </header>
 
@@ -55,6 +60,44 @@
             </div>
         </div>
 
+        <!-- 自定义清单库配置 -->
+        <div class="card">
+            <div class="card-header">
+                <h2>自定义清单库</h2>
+                <div class="card-actions">
+                    <button class="btn btn-text" id="addGithubRepoBtn" title="添加GitHub仓库">
+                        <span class="material-icons">add</span>
+                        GitHub仓库
+                    </button>
+                    <button class="btn btn-text" id="addZipRepoBtn" title="添加ZIP清单库">
+                        <span class="material-icons">add</span>
+                        ZIP清单库
+                    </button>
+                </div>
+            </div>
+            <div class="card-content">
+                <div class="input-helper" style="margin-bottom: 16px;">
+                    自定义清单库允许你添加额外的清单源。GitHub仓库格式为"用户名/仓库名"，ZIP清单库需要包含{app_id}占位符的下载URL。
+                </div>
+                
+                <!-- GitHub 仓库列表 -->
+                <div class="repo-section">
+                    <h3>GitHub 仓库</h3>
+                    <div id="githubReposList" class="repos-list">
+                        <!-- 动态生成 -->
+                    </div>
+                </div>
+                
+                <!-- ZIP 清单库列表 -->
+                <div class="repo-section">
+                    <h3>ZIP 清单库</h3>
+                    <div id="zipReposList" class="repos-list">
+                        <!-- 动态生成 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-header"><h2>应用程序配置</h2></div>
             <div class="card-content">
@@ -84,12 +127,11 @@
                             <input type="checkbox" id="showConsoleOnStartup" class="checkbox-input">
                             <span class="checkbox-button"></span>
                             <div class="checkbox-content">
-                                <span class="checkbox-label">显示程序终端输出（此选项未修复！！！无效！！！）</span>
+                                <span class="checkbox-label">显示程序终端输出（此选项未修复！！无效！！！！）</span>
                                 <span class="checkbox-description">下次启动时自动显示控制台窗口，便于查看实时日志。</span>
                             </div>
                         </label>
                     </div>
-                    <!-- **** 新增的设置项 **** -->
                     <div class="setting-item">
                         <div class="input-group">
                             <label class="input-label">强制解锁工具模式</label>
@@ -113,7 +155,6 @@
                             <div class="input-helper">强制使用指定的解锁工具，即使未检测到。程序将自动创建所需的文件夹（如 stplug-in）。</div>
                         </div>
                     </div>
-                    <!-- ********************** -->
                 </div>
             </div>
         </div>
@@ -180,6 +221,60 @@
             <input type="file" id="bgImageInput" accept="image/*" style="display: none;">
             <button id="resetBgBtn" class="btn btn-text">恢复默认</button>
             <button id="saveBgSettingsBtn" class="btn btn-primary"><span class="material-icons">save</span> 保存设置</button>
+        </div>
+    </div>
+</div>
+
+<!-- 添加仓库模态框 -->
+<div id="addRepoModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="repoModalTitle">添加仓库</h2>
+        </div>
+        <div class="modal-body">
+            <div class="input-group">
+                <label for="repoName" class="input-label">显示名称</label>
+                <input type="text" id="repoName" class="text-field" placeholder="例如：我的自定义仓库">
+                <div class="input-helper">在界面上显示的仓库名称</div>
+            </div>
+            <div class="input-group" id="repoPathGroup">
+                <label for="repoPath" class="input-label">仓库路径</label>
+                <input type="text" id="repoPath" class="text-field" placeholder="例如：username/repository">
+                <div class="input-helper">GitHub仓库格式：用户名/仓库名</div>
+            </div>
+            <div class="input-group" id="repoUrlGroup" style="display: none;">
+                <label for="repoUrl" class="input-label">下载URL</label>
+                <input type="text" id="repoUrl" class="text-field" placeholder="例如：https://example.com/download/{app_id}.zip">
+                <div class="input-helper">必须包含 {app_id} 占位符，程序会自动替换为实际的AppID</div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="cancelRepoBtn" class="btn btn-text">取消</button>
+            <button id="saveRepoBtn" class="btn btn-primary"><span class="material-icons">save</span> 保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 更新提示模态框 -->
+<div id="updateModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>🎉 发现新版本</h2>
+        </div>
+        <div class="modal-body">
+            <div id="updateInfo">
+                <!-- 动态生成更新信息 -->
+            </div>
+            <div class="input-group" style="margin-top: 16px;">
+                <div id="updateChangelog" style="max-height: 200px; overflow-y: auto; padding: 12px; background-color: var(--md-sys-color-surface-variant); border-radius: var(--md-sys-shape-corner-small); font-family: monospace; font-size: 13px;">
+                    <!-- 动态生成更新日志 -->
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="ignoreUpdateBtn" class="btn btn-text">忽略此版本</button>
+            <button id="laterUpdateBtn" class="btn btn-secondary">稍后提醒</button>
+            <button id="downloadUpdateBtn" class="btn btn-primary"><span class="material-icons">download</span> 立即更新</button>
         </div>
     </div>
 </div>
