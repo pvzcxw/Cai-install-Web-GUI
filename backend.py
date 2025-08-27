@@ -1,4 +1,4 @@
-# --- START OF FILE backend.py (MODIFIED WITH WORKSHOP SUPPORT AND DEPOTKEY PATCH) ---
+
 
 import sys
 import os
@@ -23,6 +23,9 @@ from pathlib import Path
 from typing import Tuple, Any, List, Dict, Literal
 from urllib.parse import quote
 
+CURRENT_VERSION = "1.5"  # 当前版本号
+GITHUB_REPO = "pvzcxw/Cai-install-Web-GUI" 
+
 # --- LOGGING SETUP ---
 LOG_FORMAT = '%(log_color)s%(message)s'
 LOG_COLORS = {
@@ -32,6 +35,7 @@ LOG_COLORS = {
     'CRITICAL': 'purple',
 }
 
+# --- MODIFIED: Added Custom_Repos setting ---
 DEFAULT_CONFIG = {
     "Github_Personal_Token": "",
     "Custom_Steam_Path": "",
@@ -43,7 +47,15 @@ DEFAULT_CONFIG = {
     "background_brightness": 80, 
     "show_console_on_startup": False,
     "force_unlocker_type": "auto",
-    "QA1": "温馨提示: Github_Personal_Token(个人访问令牌)可在Github设置的最底下开发者选项中找到, 详情请看教程。"
+    "Custom_Repos": {
+        "github": [],
+        "zip": []
+    },
+    "QA1": "温馨提示: Github_Personal_Token(个人访问令牌)可在Github设置的最底下开发者选项中找到, 详情请看教程。",
+    "QA2": "Force_Unlocker: 强制指定解锁工具, 填入 'steamtools' 或 'greenluma'。留空则自动检测。",
+    "QA3": "Custom_Repos: 自定义清单库配置。github数组用于添加GitHub仓库，zip数组用于添加ZIP清单库。",
+    "QA4": "GitHub仓库格式: {\"name\": \"显示名称\", \"repo\": \"用户名/仓库名\"}",
+    "QA5": "ZIP清单库格式: {\"name\": \"显示名称\", \"url\": \"下载URL，用{app_id}作为占位符\"}"
 }
 
 class STConverter:
@@ -134,6 +146,143 @@ class CaiBackend:
         else:
             self.log.info("文件日志已禁用。")
 
+    def _compare_versions(self, v1: str, v2: str) -> int:
+        """比较版本号，返回 -1, 0, 1"""
+        try:
+            import re
+            
+            def parse_version(v):
+                # 分离主版本号和后缀
+                match = re.match(r'(\d+(?:\.\d+)*)(.*)', v)
+                if not match:
+                    return (0, 0, 0), ''
+                
+                version_nums = match.group(1)
+                suffix = match.group(2)
+                
+                # 解析版本号
+                parts = version_nums.split('.')
+                # 填充到3位
+                while len(parts) < 3:
+                    parts.append('0')
+                
+                # 转换为整数元组
+                version_tuple = tuple(int(p) for p in parts[:3])
+                
+                return version_tuple, suffix
+            
+            v1_tuple, v1_suffix = parse_version(v1)
+            v2_tuple, v2_suffix = parse_version(v2)
+            
+            # 首先比较主版本号
+            if v1_tuple < v2_tuple:
+                return -1
+            elif v1_tuple > v2_tuple:
+                return 1
+            
+            # 版本号相同，比较后缀
+            # 空后缀被认为是正式版本，高于带后缀的版本
+            if not v1_suffix and v2_suffix:
+                return 1
+            elif v1_suffix and not v2_suffix:
+                return -1
+            elif v1_suffix < v2_suffix:
+                return -1
+            elif v1_suffix > v2_suffix:
+                return 1
+            
+            return 0
+            
+        except Exception as e:
+            self.log.warning(f"版本比较失败: {e}")
+            return 0
+    
+    async def check_for_updates(self) -> Tuple[bool, Dict]:
+        """
+        检查是否有新版本可用
+        返回: (是否有更新, 版本信息字典)
+        """
+        try:
+            self.log.info("正在检查更新...")
+            
+            # GitHub API URL
+            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            
+            # 获取 GitHub token（如果有的话）
+            github_token = self.config.get("Github_Personal_Token", "").strip()
+            headers = {'Authorization': f'Bearer {github_token}'} if github_token else {}
+            
+            # 添加 User-Agent 以避免 API 限制
+            headers['User-Agent'] = 'Cai-Install-Updater'
+            
+            # 发送请求
+            response = await self.client.get(api_url, headers=headers, timeout=10)
+            
+            if response.status_code == 404:
+                # 没有发布版本
+                self.log.info("未找到发布版本")
+                return False, {}
+            
+            response.raise_for_status()
+            release_data = response.json()
+            
+            # 提取版本信息
+            latest_version = release_data.get('tag_name', '').strip()
+            if latest_version.startswith('v'):
+                latest_version = latest_version[1:]  # 去掉 'v' 前缀
+            
+            release_name = release_data.get('name', '')
+            release_body = release_data.get('body', '')
+            release_url = release_data.get('html_url', '')
+            published_at = release_data.get('published_at', '')
+            
+            # 获取下载链接
+            download_urls = []
+            assets = release_data.get('assets', [])
+            for asset in assets:
+                download_urls.append({
+                    'name': asset.get('name', ''),
+                    'url': asset.get('browser_download_url', ''),
+                    'size': asset.get('size', 0)
+                })
+            
+            # 如果没有 assets，使用 zipball_url
+            if not download_urls and release_data.get('zipball_url'):
+                download_urls.append({
+                    'name': 'Source code (zip)',
+                    'url': release_data.get('zipball_url', ''),
+                    'size': 0
+                })
+            
+            # 比较版本
+            if self._compare_versions(CURRENT_VERSION, latest_version) < 0:
+                self.log.info(f"发现新版本: {latest_version} (当前版本: {CURRENT_VERSION})")
+                return True, {
+                    'current_version': CURRENT_VERSION,
+                    'latest_version': latest_version,
+                    'release_name': release_name,
+                    'release_body': release_body,
+                    'release_url': release_url,
+                    'published_at': published_at,
+                    'download_urls': download_urls
+                }
+            else:
+                self.log.info(f"当前已是最新版本 ({CURRENT_VERSION})")
+                return False, {}
+                
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 403:
+                self.log.warning("GitHub API 请求次数已用尽，跳过更新检查")
+            else:
+                self.log.warning(f"检查更新时 HTTP 错误: {e}")
+            return False, {}
+        except httpx.TimeoutException:
+            self.log.warning("检查更新超时，跳过")
+            return False, {}
+        except Exception as e:
+            self.log.warning(f"检查更新失败: {e}")
+            return False, {}
+
     async def initialize(self) -> Literal["steamtools", "greenluma", "conflict", "none", None]:
         self.config = await self.load_config()
         if self.config is None: return None
@@ -194,9 +343,26 @@ class CaiBackend:
         if not config_path.exists():
             await self.gen_config_file()
             return DEFAULT_CONFIG
+
         try:
             async with aiofiles.open(config_path, mode="r", encoding="utf-8") as f:
-                return json.loads(await f.read())
+                # --- MODIFIED: Load config and merge with defaults to handle new keys ---
+                user_config = json.loads(await f.read())
+                config = DEFAULT_CONFIG.copy()
+                config.update(user_config)
+                
+                # --- NEW: Ensure Custom_Repos structure exists ---
+                if 'Custom_Repos' not in config:
+                    config['Custom_Repos'] = {"github": [], "zip": []}
+                elif not isinstance(config['Custom_Repos'], dict):
+                    config['Custom_Repos'] = {"github": [], "zip": []}
+                else:
+                    if 'github' not in config['Custom_Repos']:
+                        config['Custom_Repos']['github'] = []
+                    if 'zip' not in config['Custom_Repos']:
+                        config['Custom_Repos']['zip'] = []
+                
+                return config
         except Exception as e:
             self.log.error(f"加载配置文件失败: {self.stack_error(e)}。正在重置配置文件...")
             if config_path.exists(): os.remove(config_path)
@@ -217,6 +383,53 @@ class CaiBackend:
         except Exception:
             self.log.error(f'获取Steam路径失败。请检查Steam是否正确安装，或在config.json中设置Custom_Steam_Path。')
             return None
+
+    # --- NEW: Custom repository support functions ---
+    def get_custom_github_repos(self) -> List[Dict]:
+        """获取自定义GitHub仓库列表"""
+        custom_repos = self.config.get("Custom_Repos", {}).get("github", [])
+        validated_repos = []
+        
+        for repo in custom_repos:
+            if isinstance(repo, dict) and 'name' in repo and 'repo' in repo:
+                validated_repos.append(repo)
+            else:
+                self.log.warning(f"无效的自定义GitHub仓库配置: {repo}")
+        
+        return validated_repos
+
+    def get_custom_zip_repos(self) -> List[Dict]:
+        """获取自定义ZIP仓库列表"""
+        custom_repos = self.config.get("Custom_Repos", {}).get("zip", [])
+        validated_repos = []
+        
+        for repo in custom_repos:
+            if isinstance(repo, dict) and 'name' in repo and 'url' in repo:
+                # 验证URL中是否包含{app_id}占位符
+                if '{app_id}' in repo['url']:
+                    validated_repos.append(repo)
+                else:
+                    self.log.warning(f"自定义ZIP仓库URL缺少{app_id}占位符: {repo}")
+            else:
+                self.log.warning(f"无效的自定义ZIP仓库配置: {repo}")
+        
+        return validated_repos
+
+    async def process_custom_zip_manifest(self, app_id: str, repo_config: Dict, add_all_dlc: bool = False, patch_depot_key: bool = False) -> bool:
+        """处理自定义ZIP清单库"""
+        repo_name = repo_config.get('name', '未知仓库')
+        url_template = repo_config.get('url', '')
+        
+        # 替换占位符
+        download_url = url_template.replace('{app_id}', app_id)
+        
+        return await self._process_zip_manifest_generic(app_id, download_url, f"自定义ZIP库 ({repo_name})", self.unlocker_type, False, add_all_dlc, patch_depot_key)
+
+    def get_all_github_repos(self) -> List[str]:
+        """获取所有GitHub仓库（内置+自定义）"""
+        builtin_repos = ['Auiowu/ManifestAutoUpdate', 'SteamAutoCracks/ManifestHub']
+        custom_repos = [repo['repo'] for repo in self.get_custom_github_repos()]
+        return builtin_repos + custom_repos
 
     # NEW: HTTP helper function for safe requests with retry mechanism
     async def http_get_safe(self, url: str, timeout: int = 30, max_retries: int = 3, retry_delay: float = 1.0) -> httpx.Response | None:
@@ -301,7 +514,7 @@ class CaiBackend:
         # Try different language parameters
         api_variants = [
             f"https://store.steampowered.com/api/appdetails?appids={appid}&l=schinese",
-            f"https://store.steampowered.com/api/appdetails?appids={appid}&l=english", 
+            f"https://store.steampowered.com/api/appdetails?appids={appid}&l=english",
             f"https://store.steampowered.com/api/appdetails?appids={appid}"
         ]
         
@@ -816,7 +1029,7 @@ class CaiBackend:
             self.log.info(f"成功将 {len(depot_id_list)} 个ID添加到GreenLuma的AppList中。")
             return True
         except Exception as e:
-            self.log.error(f'GreenLuma添加AppID失败: {e}')
+            self.log.error(f'GreenLuma添加 AppID失败: {e}')
             return False
             
     async def _get_steamcmd_api_data(self, appid: str) -> Dict:
@@ -996,6 +1209,13 @@ class CaiBackend:
             "steamdatabase": "https://steamdatabase.s3.eu-north-1.amazonaws.com/{app_id}.zip"
         }
         source_name_map = { "printedwaste": "SWA V2 (printedwaste)", "cysaw": "Cysaw", "furcate": "Furcate", "assiw": "CNGS (assiw)", "steamdatabase": "SteamDatabase" }
+        
+        # Check for custom zip repos
+        custom_zip_repos = self.get_custom_zip_repos()
+        for repo_config in custom_zip_repos:
+            if tool_type == f"custom_zip_{repo_config['name']}":
+                return await self.process_custom_zip_manifest(app_id, repo_config, add_all_dlc, patch_depot_key)
+        
         url_template = source_map.get(tool_type)
         source_name = source_name_map.get(tool_type)
         if not url_template or not source_name:
@@ -1017,7 +1237,12 @@ class CaiBackend:
             self.log.error(f'从 {url} 获取信息时发生意外错误: {self.stack_error(e)}')
             return None
             
-    async def search_all_repos_for_appid(self, app_id: str, repos: List[str]) -> List[Dict]:
+    # MODIFIED: Updated to use all github repos including custom ones
+    async def search_all_repos_for_appid(self, app_id: str, repos: List[str] = None) -> List[Dict]:
+        """Search for app_id in all GitHub repositories (builtin + custom)"""
+        if repos is None:
+            repos = self.get_all_github_repos()
+        
         github_token = self.config.get("Github_Personal_Token", "")
         headers = {'Authorization': f'Bearer {github_token}'} if github_token else None
         tasks = [self._search_single_repo(app_id, repo, headers) for repo in repos]
