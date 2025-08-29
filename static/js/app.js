@@ -1,4 +1,4 @@
-
+// --- START OF FILE static/js/app.js (MODIFIED WITH WORKSHOP SUPPORT AND DEPOTKEY PATCH) ---
 
 class CaiWebApp {
     constructor() {
