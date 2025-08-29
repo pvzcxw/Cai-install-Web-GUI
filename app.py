@@ -18,6 +18,7 @@ import tkinter as tk
 from tkinter import ttk
 
 
+
 if sys.platform == 'win32':
     import ctypes
     
@@ -52,8 +53,12 @@ else:
     console_manager = ConsoleManager()
 
 # --- Project Setup ---
-if getattr(sys, 'frozen', False): project_root = Path(sys.executable).parent
-else: project_root = Path(__file__).parent
+if getattr(sys, 'frozen', False): 
+    project_root = Path(sys.executable).parent
+elif hasattr(sys, '__nuitka_binary_dir__'):
+    project_root = Path(sys.executable).parent
+else: 
+    project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 try:
@@ -139,19 +144,24 @@ def about_page(): return render_template('about.html')
 
 # --- Core API Routes ---
 @app.route('/api/initialize', methods=['POST'])
-async def initialize_app():
+def initialize_app():  # 改为同步函数
     try:
-        async with CaiBackend() as backend:
-            patch_log_for_socketio(backend.log)
-            unlocker_type = await backend.initialize()
-            if backend.config is None:
-                 return jsonify({"success": False, "message": "加载配置失败，请检查日志。"})
-            return jsonify({
-                "success": True,
-                "unlocker_type": unlocker_type,
-                "steam_path": str(backend.steam_path) if backend.steam_path else "Not Found",
-                "has_token": bool(backend.config.get("Github_Personal_Token", "").strip())
-            })
+        async def _init():
+            async with CaiBackend() as backend:
+                patch_log_for_socketio(backend.log)
+                unlocker_type = await backend.initialize()
+                if backend.config is None:
+                    return {"success": False, "message": "加载配置失败，请检查日志。"}
+                return {
+                    "success": True,
+                    "unlocker_type": unlocker_type,
+                    "steam_path": str(backend.steam_path) if backend.steam_path else "Not Found",
+                    "has_token": bool(backend.config.get("Github_Personal_Token", "").strip())
+                }
+        
+        result = asyncio.run(_init())
+        return jsonify(result)
+        
     except Exception as e:
         dummy_backend = CaiBackend()
         message = f"后端初始化失败: {str(e)}"
@@ -160,19 +170,22 @@ async def initialize_app():
 
 # NEW: Auto-update check endpoint
 @app.route('/api/check_updates', methods=['POST'])
-async def check_updates():
+def check_updates():  # 改为同步函数
     try:
-        async with CaiBackend() as backend:
-            patch_log_for_socketio(backend.log)
-            await backend.initialize()
-            
-            has_update, update_info = await backend.check_for_updates()
-            
-            return jsonify({
-                "success": True,
-                "has_update": has_update,
-                "update_info": update_info
-            })
+        async def _check():
+            async with CaiBackend() as backend:
+                patch_log_for_socketio(backend.log)
+                await backend.initialize()
+                has_update, update_info = await backend.check_for_updates()
+                return {
+                    "success": True,
+                    "has_update": has_update,
+                    "update_info": update_info
+                }
+        
+        result = asyncio.run(_check())
+        return jsonify(result)
+        
     except Exception as e:
         dummy_backend = CaiBackend()
         message = f"检查更新失败: {str(e)}"
@@ -181,41 +194,47 @@ async def check_updates():
 
 # NEW: Get available sources (including custom repos)
 @app.route('/api/sources', methods=['GET'])
-async def get_sources():
+def get_sources():  # 改为同步函数
     try:
-        async with CaiBackend() as backend:
-            await backend.initialize()
-            
-            # Built-in sources
-            builtin_sources = {
-                "自动搜索GitHub": "search",
-                "SWA V2": "printedwaste", 
-                "Cysaw": "cysaw",
-                "Furcate": "furcate",
-                "CNGS": "assiw",
-                "steamdatabase": "steamdatabase",
-                "GitHub (Auiowu)": "Auiowu/ManifestAutoUpdate",
-                "GitHub (SAC)": "SteamAutoCracks/ManifestHub"
-            }
-            
-            # Custom sources
-            custom_github_repos = backend.get_custom_github_repos()
-            custom_zip_repos = backend.get_custom_zip_repos()
-            
-            # Add custom GitHub repos
-            for repo in custom_github_repos:
-                builtin_sources[f"{repo['name']} (自定义GitHub)"] = repo['repo']
-            
-            # Add custom ZIP repos  
-            for repo in custom_zip_repos:
-                builtin_sources[f"{repo['name']} (自定义ZIP)"] = f"custom_zip_{repo['name']}"
-            
-            return jsonify({
-                "success": True,
-                "sources": builtin_sources,
-                "custom_github_count": len(custom_github_repos),
-                "custom_zip_count": len(custom_zip_repos)
-            })
+        async def _get_sources():
+            async with CaiBackend() as backend:
+                await backend.initialize()
+                
+                # Built-in sources
+                builtin_sources = {
+                    "自动搜索GitHub": "search",
+                    "SWA V2": "printedwaste", 
+                    "Cysaw": "cysaw",
+                    "Furcate": "furcate",
+                    "CNGS": "assiw",
+                    "steamdatabase": "steamdatabase",
+                    "SteamAutoCracks/ManifestHub(2)": "steamautocracks_v2",
+                    "GitHub (Auiowu)": "Auiowu/ManifestAutoUpdate",
+                    "GitHub (SAC)": "SteamAutoCracks/ManifestHub"
+                }
+                
+                # Custom sources
+                custom_github_repos = backend.get_custom_github_repos()
+                custom_zip_repos = backend.get_custom_zip_repos()
+                
+                # Add custom GitHub repos
+                for repo in custom_github_repos:
+                    builtin_sources[f"{repo['name']} (自定义GitHub)"] = repo['repo']
+                
+                # Add custom ZIP repos  
+                for repo in custom_zip_repos:
+                    builtin_sources[f"{repo['name']} (自定义ZIP)"] = f"custom_zip_{repo['name']}"
+                
+                return {
+                    "success": True,
+                    "sources": builtin_sources,
+                    "custom_github_count": len(custom_github_repos),
+                    "custom_zip_count": len(custom_zip_repos)
+                }
+        
+        result = asyncio.run(_get_sources())
+        return jsonify(result)
+        
     except Exception as e:
         dummy_backend = CaiBackend()
         message = f"获取清单源失败: {str(e)}"
@@ -244,7 +263,6 @@ def search_game():
         dummy_backend.log.error(dummy_backend.stack_error(e))
         return jsonify({"success": False, "message": message}), 500
 
-# MODIFIED: Added patch_depot_key parameter
 async def _run_unlock_task(app_id, tool_type, use_st_auto_update, add_all_dlc, patch_depot_key):
     async with CaiBackend() as backend:
         patch_log_for_socketio(backend.log)
@@ -257,11 +275,14 @@ async def _run_unlock_task(app_id, tool_type, use_st_auto_update, add_all_dlc, p
 
         await backend.checkcn()
         if tool_type == "search" or "github" in tool_type.lower() or 'auiowu' in tool_type.lower() or 'steamautocracks' in tool_type.lower():
-            if not await backend.check_github_api_rate_limit():
+            # 注意：这里需要排除steamautocracks_v2，因为它不是GitHub仓库
+            if tool_type != "steamautocracks_v2" and not await backend.check_github_api_rate_limit():
                 raise Exception("GitHub API 请求次数已用尽，无法继续。")
+                
         app_id_extracted = backend.extract_app_id(app_id)
         if not app_id_extracted:
             raise Exception(f"无法从 '{app_id}' 中提取有效AppID。请输入有效的AppID或链接。")
+            
         if tool_type == "search":
             backend.log.info(f"正在所有 GitHub 仓库中搜索 AppID: {app_id_extracted}...")
             # MODIFIED: Use all repos including custom ones
@@ -274,8 +295,11 @@ async def _run_unlock_task(app_id, tool_type, use_st_auto_update, add_all_dlc, p
             }
             backend.log.info(f"找到 {len(results)} 个源，请在界面上选择。")
             return
+            
         backend.log.info(f"--- 正在使用源 '{tool_type}' 处理 AppID: {app_id_extracted} ---")
-        zip_sources = ["printedwaste", "cysaw", "furcate", "assiw", "steamdatabase"]
+        
+        # 修改这里：添加steamautocracks_v2到zip_sources列表
+        zip_sources = ["printedwaste", "cysaw", "furcate", "assiw", "steamdatabase", "steamautocracks_v2"]
         
         # Check for custom zip sources
         if tool_type.startswith("custom_zip_"):
@@ -422,11 +446,21 @@ def get_detailed_config():
         return jsonify({"success": False, "message": f"加载详细配置失败: {e}"})
 
 @app.route('/api/config/update', methods=['POST'])
-async def update_config():
+def update_config():  # 改为同步函数
     config_path = project_root / 'config.json'
     try:
         data = request.get_json()
-        current_config = standard_json.load(open(config_path, 'r', encoding='utf-8')) if config_path.exists() else DEFAULT_CONFIG.copy()
+        
+        # 确保配置文件存在
+        if not config_path.exists():
+            # 创建默认配置
+            config_path.parent.mkdir(exist_ok=True, parents=True)
+            with open(config_path, 'w', encoding='utf-8') as f:
+                standard_json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
+        
+        # 读取当前配置
+        with open(config_path, 'r', encoding='utf-8') as f:
+            current_config = standard_json.load(f)
         
         # 更新所有可能的键
         updatable_keys = [
@@ -444,31 +478,54 @@ async def update_config():
                 config_key = key_map.get(key, key)
                 current_config[config_key] = data[key]
 
-        # NEW: 处理自定义清单库配置
+        # 处理自定义清单库配置
         if "custom_repos" in data:
             current_config["Custom_Repos"] = data["custom_repos"]
 
-        with open(config_path, 'w', encoding='utf-8') as f: standard_json.dump(current_config, f, indent=2, ensure_ascii=False)
+        # 保存配置
+        with open(config_path, 'w', encoding='utf-8') as f:
+            standard_json.dump(current_config, f, indent=2, ensure_ascii=False)
+        
+        print(f"配置已保存到: {config_path}")  # 添加调试日志
         return jsonify({"success": True, "message": "配置已保存。"})
+        
     except Exception as e:
+        print(f"保存配置失败: {e}")  # 添加错误日志
         return jsonify({"success": False, "message": f"保存配置失败: {e}"})
 
 @app.route('/api/config/reset', methods=['POST'])
-async def reset_config():
+def reset_config():  # 改为同步函数
     config_path = project_root / 'config.json'
     try:
         existing_bg_settings = {}
+        
+        # 保留背景设置
         if config_path.exists():
-            with open(config_path, 'r', encoding='utf-8') as f: current_config = standard_json.load(f)
+            with open(config_path, 'r', encoding='utf-8') as f:
+                current_config = standard_json.load(f)
             bg_keys = ["background_image_path", "background_blur", "background_saturation", "background_brightness"]
             for key in bg_keys:
-                if key in current_config: existing_bg_settings[key] = current_config[key]
+                if key in current_config:
+                    existing_bg_settings[key] = current_config[key]
+        
+        # 创建新配置
         new_config = DEFAULT_CONFIG.copy()
         new_config.update(existing_bg_settings)
-        with open(config_path, 'w', encoding='utf-8') as f: standard_json.dump(new_config, f, indent=2, ensure_ascii=False)
+        
+        # 确保目录存在
+        config_path.parent.mkdir(exist_ok=True, parents=True)
+        
+        # 保存配置
+        with open(config_path, 'w', encoding='utf-8') as f:
+            standard_json.dump(new_config, f, indent=2, ensure_ascii=False)
+        
+        print(f"配置已重置并保存到: {config_path}")  # 添加调试日志
         return jsonify({"success": True, "message": "配置已重置为默认值 (背景设置已保留)。"})
+        
     except Exception as e:
+        print(f"重置配置失败: {e}")  # 添加错误日志
         return jsonify({"success": False, "message": f"重置配置失败: {e}"})
+
 
 @app.route('/api/upload_background', methods=['POST'])
 def upload_background():
@@ -489,20 +546,26 @@ def upload_background():
 def serve_userdata(filename): return send_from_directory(app.config['USER_DATA_FOLDER'], filename)
 
 @app.route('/api/steam/restart', methods=['POST'])
-async def restart_steam():
+def restart_steam():  # 改为同步函数
     try:
-        async with CaiBackend() as backend:
-            await backend.initialize()
-            patch_log_for_socketio(backend.log)
-            success = backend.restart_steam()
-            if success: return jsonify({"success": True, "message": "已发送重启 Steam 的指令。这可能需要一些时间。"})
-            else: return jsonify({"success": False, "message": "重启 Steam 失败，请检查路径配置或日志。"})
+        async def _restart():
+            async with CaiBackend() as backend:
+                await backend.initialize()
+                patch_log_for_socketio(backend.log)
+                success = backend.restart_steam()
+                if success:
+                    return {"success": True, "message": "已发送重启 Steam 的指令。这可能需要一些时间。"}
+                else:
+                    return {"success": False, "message": "重启 Steam 失败，请检查路径配置或日志。"}
+        
+        result = asyncio.run(_restart())
+        return jsonify(result)
+        
     except Exception as e:
         dummy_backend = CaiBackend()
         message = f"请求重启Steam时发生后端错误: {str(e)}"
         dummy_backend.log.error(dummy_backend.stack_error(e))
         return jsonify({"success": False, "message": message}), 500
-
 @app.route('/api/console/toggle', methods=['POST'])
 def toggle_console():
     if sys.platform != 'win32': return jsonify({"success": False, "message": "此功能仅在Windows上可用。"}), 400
@@ -524,9 +587,19 @@ def shutdown():
     return jsonify({"success": True, "message": "服务器正在关闭..."})
 
 if __name__ == '__main__':
+    if sys.platform == 'win32':
+        try:
+            os.system('title ' + 'Cai Install XP Web GUI')
+        except:
+            pass 
+    
+    # 只调用一次控制台显示检查
     if sys.platform == 'win32' and should_show_console_on_startup():
         console_manager._show_console()
+    
+    # 只调用一次端口选择
     port = get_port_from_gui()
+    
     print(f"将使用端口: {port}")
     url = f"http://127.0.0.1:{port}"
     def open_browser():
