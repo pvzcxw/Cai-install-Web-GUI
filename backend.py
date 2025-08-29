@@ -1,4 +1,4 @@
-
+# --- START OF FILE backend.py (MODIFIED WITH AUTO-UPDATE AND CUSTOM REPOS) ---
 
 import sys
 import os
@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Tuple, Any, List, Dict, Literal
 from urllib.parse import quote
 
-CURRENT_VERSION = "1.5"  # 当前版本号
+CURRENT_VERSION = "1.6"  # 当前版本号
 GITHUB_REPO = "pvzcxw/Cai-install-Web-GUI" 
 
 # --- LOGGING SETUP ---
@@ -92,6 +92,8 @@ class CaiBackend:
     def __init__(self):
         if getattr(sys, 'frozen', False):
             self.project_root = Path(sys.executable).parent
+        elif hasattr(sys, '__nuitka_binary_dir__'):
+            self.project_root = Path(sys.__nuitka_binary_dir__)
         else:
             self.project_root = Path(__file__).parent
         self.client: httpx.AsyncClient | None = None
@@ -332,8 +334,11 @@ class CaiBackend:
     async def gen_config_file(self):
         config_path = self.project_root / 'config.json'
         try:
-            async with aiofiles.open(config_path, mode="w", encoding="utf-8") as f:
-                await f.write(json.dumps(DEFAULT_CONFIG, indent=2, ensure_ascii=False))
+        # 确保目录存在
+            config_path.parent.mkdir(exist_ok=True, parents=True)
+        
+            with open(config_path, mode="w", encoding="utf-8") as f:
+                f.write(json.dumps(DEFAULT_CONFIG, indent=2, ensure_ascii=False))
             self.log.info('未识别到config.json，可能为首次启动，已自动生成，若进行配置重启生效')
         except Exception as e:
             self.log.error(f'生成配置文件失败: {self.stack_error(e)}')
@@ -834,6 +839,284 @@ class CaiBackend:
             self.log.error("建议检查网络连接或稍后重试。")
             return None
 
+    async def process_steamautocracks_v2_manifest(self, app_id: str, unlocker_type: str, use_st_auto_update: bool, add_all_dlc: bool = False, patch_depot_key: bool = False) -> bool:
+        """处理 SteamAutoCracks/ManifestHub(2) 清单库 - 使用 steamui API 获取 depot 和 manifest 信息"""
+        try:
+            self.log.info(f'正从 SteamAutoCracks/ManifestHub(2) 处理 AppID {app_id} 的清单...')
+            
+            # 1. 从 steamui API 获取 depot 和 manifest 信息
+            depot_manifest_map = await self._get_depots_and_manifests_from_steamui(app_id)
+            if not depot_manifest_map:
+                self.log.error(f"未能从 steamui API 获取到 AppID {app_id} 的 depot 信息")
+                return False
+            
+            self.log.info(f"从 steamui API 获取到 {len(depot_manifest_map)} 个 depot 及其 manifest")
+            
+            # 2. 下载 depotkeys.json（复用现有方法）
+            if 'IS_CN' not in os.environ:
+                self.log.info("检测网络环境以优化下载源选择...")
+                await self.checkcn()
+            
+            depotkeys_data = await self.download_depotkeys_json()
+            if not depotkeys_data:
+                self.log.error("无法获取 depotkeys 数据")
+                return False
+            
+            # 3. 匹配 depot 与 depotkey
+            valid_depots = {}
+            for depot_id in depot_manifest_map.keys():
+                if depot_id in depotkeys_data:
+                    depotkey = depotkeys_data[depot_id]
+                    # 检查 depotkey 是否有效（不为空字符串）
+                    if depotkey and str(depotkey).strip():
+                        valid_depots[depot_id] = str(depotkey).strip()
+                        self.log.info(f"找到 depot {depot_id} 的有效 depotkey: {depotkey}")
+                    else:
+                        self.log.warning(f"depot {depot_id} 的 depotkey 为空，自动跳过")
+                else:
+                    self.log.warning(f"未找到 depot {depot_id} 的 depotkey，自动跳过")
+            
+            if not valid_depots:
+                self.log.warning(f"AppID {app_id} 没有找到任何有效的 depot 密钥")
+                return False
+            
+            # 4. 根据解锁工具类型处理
+            if unlocker_type == "steamtools":
+                return await self._process_steamautocracks_v2_for_steamtools(app_id, valid_depots, depot_manifest_map, use_st_auto_update, add_all_dlc, patch_depot_key, depotkeys_data)
+            else:
+                return await self._process_steamautocracks_v2_for_greenluma(app_id, valid_depots)
+                
+        except Exception as e:
+            self.log.error(f'处理 SteamAutoCracks/ManifestHub(2) 清单时出错: {self.stack_error(e)}')
+            return False
+
+    async def _get_depots_and_manifests_from_steamui(self, app_id: str) -> Dict[str, str]:
+        """从 steamui API 获取 depot 和对应的 manifest 信息"""
+        try:
+            url = f"https://steamui.com/api/get_appinfo.php?appid={app_id}"
+            response = await self.client.get(url, timeout=20)
+            response.raise_for_status()
+            
+            # steamui API 返回的是VDF格式，不是JSON格式
+            vdf_content = response.text
+            self.log.info(f"steamui API 原始响应内容预览: {vdf_content[:200]}...")
+            
+            # 使用VDF解析器解析内容
+            import vdf
+            data = vdf.loads(vdf_content)
+            
+            self.log.info(f"VDF解析后的数据结构键: {list(data.keys())}")
+            
+            depot_manifest_map = {}
+            
+            # 遍历所有键，找到数字格式的depot ID
+            for key, value in data.items():
+                # 检查是否是数字格式的 depot ID
+                if key.isdigit() and isinstance(value, dict):
+                    # 检查是否有 manifests 信息（确认是有效的 depot）
+                    if 'manifests' in value and value['manifests']:
+                        manifests = value['manifests']
+                        if isinstance(manifests, dict) and 'public' in manifests:
+                            public_manifest = manifests['public']
+                            if isinstance(public_manifest, dict) and 'gid' in public_manifest:
+                                manifest_id = public_manifest['gid']
+                                depot_manifest_map[key] = manifest_id
+                                self.log.info(f"发现有效 depot: {key}, manifest: {manifest_id}")
+            
+            if depot_manifest_map:
+                self.log.info(f"总共找到 {len(depot_manifest_map)} 个有效的 depot 及其 manifest")
+                return depot_manifest_map
+            else:
+                # 如果没有找到depot，尝试查找其他可能的结构
+                self.log.warning("在根级别未找到depot，尝试查找嵌套结构...")
+                
+                # 检查是否有 'depots' 键（某些情况下可能存在）
+                if 'depots' in data:
+                    depots = data['depots']
+                    for depot_id, depot_info in depots.items():
+                        if depot_id.isdigit() and isinstance(depot_info, dict):
+                            if 'manifests' in depot_info and depot_info['manifests']:
+                                manifests = depot_info['manifests']
+                                if isinstance(manifests, dict) and 'public' in manifests:
+                                    public_manifest = manifests['public']
+                                    if isinstance(public_manifest, dict) and 'gid' in public_manifest:
+                                        manifest_id = public_manifest['gid']
+                                        depot_manifest_map[depot_id] = manifest_id
+                                        self.log.info(f"在depots键下发现有效 depot: {depot_id}, manifest: {manifest_id}")
+                
+                # 如果还是没找到，检查是否有应用信息的嵌套结构
+                if not depot_manifest_map:
+                    for key, value in data.items():
+                        if isinstance(value, dict) and 'depots' in value:
+                            depots = value['depots']
+                            for depot_id, depot_info in depots.items():
+                                if depot_id.isdigit() and isinstance(depot_info, dict):
+                                    if 'manifests' in depot_info and depot_info['manifests']:
+                                        manifests = depot_info['manifests']
+                                        if isinstance(manifests, dict) and 'public' in manifests:
+                                            public_manifest = manifests['public']
+                                            if isinstance(public_manifest, dict) and 'gid' in public_manifest:
+                                                manifest_id = public_manifest['gid']
+                                                depot_manifest_map[depot_id] = manifest_id
+                                                self.log.info(f"在嵌套depots键下发现有效 depot: {depot_id}, manifest: {manifest_id}")
+                
+                if not depot_manifest_map:
+                    self.log.error(f"经过多种尝试后，仍未在steamui API响应中找到 AppID {app_id} 的depot信息")
+                    self.log.error(f"VDF数据结构: {list(data.keys())}")
+                    return {}
+                
+                return depot_manifest_map
+            
+        except vdf.VDFError as e:
+            self.log.error(f"解析 steamui API VDF 响应失败: {e}")
+            self.log.error(f"原始VDF内容: {vdf_content[:500]}...")
+            return {}
+        except Exception as e:
+            self.log.error(f"从 steamui API 获取 depot 信息失败: {e}")
+            return {}
+
+    async def _process_steamautocracks_v2_for_steamtools(self, app_id: str, valid_depots: Dict[str, str], depot_manifest_map: Dict[str, str], use_st_auto_update: bool, add_all_dlc: bool, patch_depot_key: bool, depotkeys_data: Dict) -> bool:
+        """为 SteamTools 处理 SteamAutoCracks/ManifestHub(2) 清单"""
+        try:
+            stplug_path = self.steam_path / 'config' / 'stplug-in'
+            
+            lua_filename = f"{app_id}.lua"
+            lua_filepath = stplug_path / lua_filename
+            
+            # 检查是否启用了自动更新模式
+            is_auto_update_mode = use_st_auto_update
+            
+            # 生成 lua 文件内容
+            lines = []
+            
+            # 第一行：主游戏 appid
+            lines.append(f'addappid({app_id})')
+            
+            # 添加所有有效的 depot 及其密钥
+            for depot_id, depotkey in valid_depots.items():
+                lines.append(f'addappid({depot_id}, 1, "{depotkey}")')
+            
+            # 添加 setManifestid 行（使用从 steamui API 获取的 manifest 信息）
+            manifest_lines = []
+            for depot_id in valid_depots.keys():
+                if depot_id in depot_manifest_map:
+                    manifest_id = depot_manifest_map[depot_id]
+                    # 根据是否启用自动更新决定是否注释掉 manifest 行
+                    if is_auto_update_mode:
+                        # 自动更新模式：注释掉 setManifestid 行
+                        manifest_lines.append(f'--setManifestid({depot_id}, "{manifest_id}")')
+                        self.log.info(f"添加注释的 manifest 映射（自动更新模式）: depot {depot_id} -> manifest {manifest_id}")
+                    else:
+                        # 固定版本模式：正常添加 setManifestid 行
+                        manifest_lines.append(f'setManifestid({depot_id}, "{manifest_id}")')
+                        self.log.info(f"添加 manifest 映射（固定版本）: depot {depot_id} -> manifest {manifest_id}")
+            
+            # 写入文件
+            async with aiofiles.open(lua_filepath, mode="w", encoding="utf-8") as lua_file:
+                await lua_file.write('\n'.join(lines) + '\n')
+                if manifest_lines:
+                    await lua_file.write('\n-- Manifests\n')
+                    await lua_file.write('\n'.join(manifest_lines) + '\n')
+            
+            self.log.info(f"已为SteamTools生成解锁文件: {lua_filename}")
+            
+            # 处理 DLC
+            if add_all_dlc:
+                await self._add_free_dlcs_to_lua(app_id, lua_filepath)
+            
+            # 处理创意工坊密钥修补（复用已下载的 depotkeys_data）
+            if patch_depot_key:
+                self.log.info("开始修补创意工坊depotkey...")
+                await self._patch_lua_with_existing_depotkeys(app_id, lua_filepath, depotkeys_data)
+            
+            return True
+            
+        except Exception as e:
+            self.log.error(f'为 SteamTools 处理 SteamAutoCracks/ManifestHub(2) 清单时出错: {e}')
+            return False
+
+    async def _process_steamautocracks_v2_for_greenluma(self, app_id: str, valid_depots: Dict[str, str]) -> bool:
+        """为 GreenLuma 处理 SteamAutoCracks/ManifestHub(2) 清单"""
+        try:
+            # GreenLuma needs the depotkeys merged into config.vdf
+            depots_config = {'depots': {depot_id: {"DecryptionKey": key} for depot_id, key in valid_depots.items()}}
+            
+            # Merge depotkeys
+            config_vdf_path = self.steam_path / 'config' / 'config.vdf'
+            if await self.depotkey_merge(config_vdf_path, depots_config):
+                self.log.info("已将密钥合并到 config.vdf")
+            
+            # Add app IDs to GreenLuma
+            gl_ids = list(valid_depots.keys())
+            gl_ids.append(app_id)
+            await self.greenluma_add(list(set(gl_ids)))
+            self.log.info("已添加到 GreenLuma")
+            
+            return True
+            
+        except Exception as e:
+            self.log.error(f'为 GreenLuma 处理 SteamAutoCracks/ManifestHub(2) 清单时出错: {e}')
+            return False
+    
+    async def _patch_lua_with_existing_depotkeys(self, app_id: str, lua_file_path: Path, depotkeys_data: Dict) -> bool:
+        """使用已有的 depotkeys 数据修补 LUA 文件（避免重复下载）"""
+        try:
+            # 检查 app_id 是否在 depotkeys 中
+            if app_id not in depotkeys_data:
+                self.log.warning(f"没有此AppID的depotkey: {app_id}")
+                return False
+            
+            depotkey = depotkeys_data[app_id]
+            
+            # 检查 depotkey 是否有效
+            if not depotkey or not str(depotkey).strip():
+                self.log.warning(f"AppID {app_id} 的 depotkey 为空或无效，跳过修补: '{depotkey}'")
+                return False
+            
+            depotkey = str(depotkey).strip()
+            self.log.info(f"找到 AppID {app_id} 的有效 depotkey: {depotkey}")
+            
+            # 读取现有 LUA 文件
+            if not lua_file_path.exists():
+                self.log.error(f"LUA文件不存在: {lua_file_path}")
+                return False
+            
+            async with aiofiles.open(lua_file_path, 'r', encoding='utf-8') as f:
+                lua_content = await f.read()
+            
+            # 解析行
+            lines = lua_content.strip().split('\n')
+            new_lines = []
+            app_id_line_removed = False
+            
+            # 移除现有的 addappid({app_id}) 行并添加带 depotkey 的新行
+            for line in lines:
+                line = line.strip()
+                # 检查是否是需要替换的简单 addappid 行
+                if line == f"addappid({app_id})":
+                    # 替换为带 depotkey 的版本
+                    new_lines.append(f'addappid({app_id},1,"{depotkey}")')
+                    app_id_line_removed = True
+                    self.log.info(f"已替换: addappid({app_id}) -> addappid({app_id},1,\"{depotkey}\")")
+                else:
+                    new_lines.append(line)
+            
+            # 如果没有找到简单的 addappid 行，添加 depotkey 版本
+            if not app_id_line_removed:
+                new_lines.append(f'addappid({app_id},1,"{depotkey}")')
+                self.log.info(f"已添加新的 depotkey 条目: addappid({app_id},1,\"{depotkey}\")")
+            
+            # 写回文件
+            async with aiofiles.open(lua_file_path, 'w', encoding='utf-8') as f:
+                await f.write('\n'.join(new_lines) + '\n')
+            
+            self.log.info(f"成功修补 LUA 文件的 depotkey: {lua_file_path.name}")
+            return True
+            
+        except Exception as e:
+            self.log.error(f"修补 LUA depotkey 时出错: {self.stack_error(e)}")
+            return False
+
     async def patch_lua_with_depotkey(self, app_id: str, lua_file_path: Path) -> bool:
         """Patch LUA file with depotkey from SteamAutoCracks repository"""
         try:
@@ -1199,16 +1482,27 @@ class CaiBackend:
             if zip_path.exists(): zip_path.unlink(missing_ok=True)
             if extract_path.exists(): shutil.rmtree(extract_path)
 
-    # MODIFIED: Added patch_depot_key parameter
     async def process_zip_source(self, app_id: str, tool_type: str, unlocker_type: str, use_st_auto_update: bool, add_all_dlc: bool, patch_depot_key: bool = False) -> bool:
         source_map = {
             "printedwaste": "https://api.printedwaste.com/gfk/download/{app_id}",
             "cysaw": "https://cysaw.top/uploads/{app_id}.zip",
             "furcate": "https://furcate.eu/files/{app_id}.zip",
             "assiw": "https://assiw.cngames.site/qindan/{app_id}.zip",
-            "steamdatabase": "https://steamdatabase.s3.eu-north-1.amazonaws.com/{app_id}.zip"
+            "steamdatabase": "https://steamdatabase.s3.eu-north-1.amazonaws.com/{app_id}.zip",
+            "steamautocracks_v2": "special"  # 特殊处理标识
         }
-        source_name_map = { "printedwaste": "SWA V2 (printedwaste)", "cysaw": "Cysaw", "furcate": "Furcate", "assiw": "CNGS (assiw)", "steamdatabase": "SteamDatabase" }
+        source_name_map = { 
+            "printedwaste": "SWA V2 (printedwaste)", 
+            "cysaw": "Cysaw", 
+            "furcate": "Furcate", 
+            "assiw": "CNGS (assiw)", 
+            "steamdatabase": "SteamDatabase",
+            "steamautocracks_v2": "SteamAutoCracks/ManifestHub(2)"
+        }
+        
+        # 特殊处理 steamautocracks_v2
+        if tool_type == "steamautocracks_v2":
+            return await self.process_steamautocracks_v2_manifest(app_id, unlocker_type, use_st_auto_update, add_all_dlc, patch_depot_key)
         
         # Check for custom zip repos
         custom_zip_repos = self.get_custom_zip_repos()
@@ -1403,3 +1697,5 @@ class CaiBackend:
                     self.log.info(f'已重命名: {file.name} -> {new_filename.name}')
                 except Exception as e:
                     self.log.error(f'重命名失败 {file.name}: {e}')
+
+# --- END OF FILE backend.py ---
