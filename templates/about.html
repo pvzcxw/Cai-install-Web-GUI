@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>关于 - Cai Install Web GUI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/about-style.css') }}">
+</head>
+<body>
+<div id="background-overlay"></div>
+<div class="app-container">
+    <header class="app-bar">
+        <div class="app-bar-content">
+            <button class="btn btn-text" onclick="window.history.back()">
+                <span class="material-icons">arrow_back</span>
+            </button>
+            <span class="material-icons app-icon">info_outline</span>
+            <h1 class="app-title">关于</h1>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <div class="project-info-card">
+            <div class="project-header">
+                <div class="project-logo">
+                    <span class="material-icons">dynamic_feed</span>
+                </div>
+                <div class="project-details">
+                    <h3 class="project-name">Cai Install XP Web GUI</h3>
+                    <p class="project-subtitle">菜Games开发的steam清单下载与导入工具</p>
+                </div>
+                <div class="project-version">
+                    <span class="version-label">Web GUI2.5（1.64）</span>
+                    <span class="version-type">Web GUI</span>
+                </div>
+            </div>
+            <div class="project-description">
+                <p>本项目基于原 Cai-Install 核心逻辑，外观改于Onekey_GUI，通过 Flask 提供现代化的 Web 图形界面构建</p>
+            </div>
+            <div class="project-links">
+                <a href="https://github.com/pvzcxw/Cai-install" target="_blank" class="project-link">
+                    <span class="material-icons">code</span>
+                    <div class="link-content"><span class="link-title">cai install原项目仓库</span><span class="link-url">cai install原版项目</span></div>
+                </a>
+                <a href="https://github.com/pvzcxw" target="_blank" class="project-link">
+                    <span class="material-icons">person</span>
+                    <div class="link-content"><span class="link-title">本项目作者主页</span><span class="link-url">github.com/pvzcxw</span></div>
+                </a>
+                <a href="https://github.com/pvzcxw/Cai-install-Web-GUI" target="_blank" class="project-link">
+                    <span class="material-icons">code</span>
+                    <div class="link-content"><span class="link-title">本项目仓库</span><span class="link-url">由pvzcxw构建</span></div>
+                </a>
+                <a href="http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=LSm4c51Ef0F3EOpwtojGJRohf50Jh2Ts&authKey=W3uFCwrxNT%2FtBQ%2BeSfR1TmzOn67ZS7Xax9gBgythNeLQgdhUNJ9DJ0W0ocrFqNuE&noverify=0&group_code=993782526" target="_blank" class="project-link">
+                    <span class="material-icons">group</span>
+                    <div class="link-content"><span class="link-title">加入群聊</span><span class="link-url">group:993782526</span></div>
+                </a>
+                <a href="https://github.com/qwq-xinkeng/Onekey_GUI" target="_blank" class="project-link">
+                    <span class="material-icons">palette</span>
+                    <div class="link-content"><span class="link-title">Onekey-GUI项目</span><span class="link-url">本项目外观基于Onekey-GUI</span></div>
+                </a>
+            </div>
+        </div>
+        
+        <div class="tech-info">
+            <div class="tech-header">
+                <span class="material-icons">developer_mode</span>
+                <h4>技术栈</h4>
+            </div>
+            <div class="tech-content">
+                <div class="tech-item"><strong>🐍 后端:</strong><span>Python 3.8+, Flask, Flask-SocketIO, AsyncIO, HTTPX</span></div>
+                <div class="tech-item"><strong>🌐 前端:</strong><span>HTML5, CSS3, JavaScript (ES6+), Material Icons</span></div>
+                <div class="tech-item"><strong>🔧 核心逻辑:</strong><span>基于 Cai-install 原版，外观基于onekey-GUI，适配 Web 环境</span></div>
+            </div>
+        </div>
+        <div class="usage-notice">
+            <div class="notice-header">
+                <span class="material-icons">gavel</span>
+                <h4>使用须知</h4>
+            </div>
+            <div class="notice-content">
+                <p><strong>⚠️ 重要提醒:</strong> 本工具完全免费开源，严禁任何形式的商业化使用或倒卖。</p>
+                <p><strong>💻 系统要求:</strong> 请确保已安装 Windows 10/11 并正确配置 Steam 客户端，并且使用chrome50内核以上浏览器访问。</p>
+                <p><strong>🛠️ 工具准备:</strong> 使用前请先安装 SteamTools 或 GreenLuma 解锁工具。</p>
+                <p><strong>🔒 免责声明:</strong> 本工具仅供学习与技术交流，使用者需自行承担所有风险。</p>
+                <p><strong>⭐ 支持项目:</strong> 如果此工具对您有帮助，欢迎在 GitHub 上给原项目和 GUI 项目点 Star！</p>
+            </div>
+        </div>
+        
+        <!-- FIX: Added 'tech-info' class to give this section a box style -->
+        <div class="tech-info more-info">
+            <div class="tech-header">
+                <span class="material-icons">developer_mode</span>
+                <h4>更多信息</h4>
+            </div>
+            <div class="tech-content">
+                <div class="tech-item"><strong>🐍 Vdf writer:</strong><span>vdf writer插件技术支持by KS-MLC</span></div>
+                <div class="tech-item"><strong>🌐 man2lua:</strong><span>接入自研manifest2lua</span></div>
+                <div class="tech-item"><strong>🔧 dlc检索:</strong><span>DLC检索入库技术支持by B-I-A-O</span></div>
+                <div class="tech-item"><strong>⭐ 清单bqr:</strong><span>清单不求人技术支持by ☆☆☆☆</span></div>
+                <div class="tech-item"><strong>⭐ 感谢名单:</strong><span>感谢wxy1343前辈的清单下载器脚本</span></div>
+                <div class="tech-item"><strong>⭐ 感谢名单:</strong><span>特别感谢名单：FQQ  oureveryday blanktming  wxy1343  Auiowu</span></div>
+                <div class="tech-item"><strong>⭐ 其他支持:</strong><span>其他技术支持:KS-MLC  宏</span></div>
+            </div>
+        </div>
+        
+        <!-- FIX: Added 'tech-info' class to give this section a box style -->
+        <div class="tech-info sima-info">
+            <div class="tech-header">
+                <span class="material-icons">developer_mode</span>
+                <h4>死m名单</h4>
+            </div>
+            <div class="tech-content">
+                <div class="tech-item"><strong>⭐ 死m名单:</strong><span>1.玩家资源站(B站同名)，倒卖众多免费工具,盗用清单库收费</span></div>
+                <div class="tech-item"><strong>⭐ 死m名单:</strong><span>详细:https://www.bilibili.com/video/BV1YcemzoEUM，https://www.bilibili.com/video/BV13dKczxEY5</span></div>
+                <div class="tech-item"><strong>⭐ 死m名单:</strong><span>此人盗用大量入库免费工具加入卡密弹窗进行倒卖收费,之后还扬言要报警抓我,群里冒充并且盗用我头像签名克隆我的账号,被我曝光后依然死性不改,继续招摇撞骗</span></div>
+                <div class="tech-item"><strong>⭐ 死m名单:</strong><span>手机号：15092874366</span></div>
+                <div class="tech-item"><strong>⭐ 死m名单:</strong><span>2.沧海颐粟（b站名：地球一朵花）</span></div>
+                <div class="tech-item"><strong>⭐ 死m名单:</strong><span>？谁给我胡老师挂上去？  胡老师手机号:13077962265</span></div>
+                <div class="tech-item"><strong>⭐ 死m名单:</strong><span>最畜生的胡老师</span></div>
+            </div>
+        </div>
+        
+        <div class="copyright">
+            <p>© 2025 Cai Install Web GUI • 作者: pvzcxw & qwq-xinkeng</p>
+            <p>本项目内容基于cai install xp开发，外观改于Onekey_GUI 使用GPL3.0 许可证开源</p>
+        </div>
+    </main>
+</div>
+
+<div class="floating-action-buttons">
+    <button id="shutdownBtn" class="fab" title="关闭应用">
+        <span class="material-icons">power_settings_new</span>
+    </button>
+    <button id="themeToggleBtn" class="fab" title="切换主题">
+        <span class="material-icons">dark_mode</span>
+    </button>
+    <button id="backgroundSettingsBtn" class="fab" title="自定义背景">
+        <span class="material-icons">wallpaper</span>
+    </button>
+</div>
+
+<div id="backgroundModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>自定义背景</h2>
+            <button id="closeBackgroundModal" class="btn-icon"><span class="material-icons">close</span></button>
+        </div>
+        <div class="modal-body">
+            <div class="slider-group">
+                <label for="bgBlur">模糊度</label>
+                <input type="range" id="bgBlur" min="0" max="20" value="0">
+                <span id="bgBlurValue">0px</span>
+            </div>
+            <div class="slider-group">
+                <label for="bgSaturation">饱和度</label>
+                <input type="range" id="bgSaturation" min="0" max="200" value="100">
+                <span id="bgSaturationValue">100%</span>
+            </div>
+            <div class="slider-group">
+                <label for="bgBrightness">亮度</label>
+                <input type="range" id="bgBrightness" min="20" max="100" value="100">
+                <span id="bgBrightnessValue">100%</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="selectBgImageBtn" class="btn btn-secondary"><span class="material-icons">image</span> 选择图片</button>
+            <input type="file" id="bgImageInput" accept="image/*" style="display: none;">
+            <button id="resetBgBtn" class="btn btn-text">恢复默认</button>
+            <button id="saveBgSettingsBtn" class="btn btn-primary"><span class="material-icons">save</span> 保存设置</button>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/theme-toggle.js') }}"></script>
+<script src="{{ url_for('static', filename='js/about-enhancer.js') }}"></script>
+<script src="{{ url_for('static', filename='js/background-manager.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>入库管理 - Cai Install</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/manager.css') }}">
+</head>
+<body>
+<div id="background-overlay"></div>
+<div class="app-container">
+    <!-- 修复: 使header与设置/关于页面保持一致 -->
+    <header class="app-bar">
+        <div class="app-bar-content">
+            <button class="btn btn-text" onclick="window.location.href='/'">
+                <span class="material-icons">arrow_back</span>
+            </button>
+            <span class="material-icons app-icon">apps</span>
+            <h1 class="app-title">入库管理</h1>
+        </div>
+    </header>
+
+    <!-- 主内容区域 -->
+    <main class="manager-main-content">
+        <div class="card manager-card">
+            <div class="card-header">
+                <h2>文件列表</h2>
+                <div class="card-actions" id="steamPathDisplay"></div>
+            </div>
+            <div class="manager-toolbar">
+                <div class="toolbar-section">
+                     <div class="checkbox-container">
+                        <input type="checkbox" id="selectAllCheckbox" title="全选/取消全选">
+                        <label for="selectAllCheckbox">全选</label>
+                    </div>
+                    <button class="btn btn-primary" id="refreshBtn">
+                        <span class="material-icons">refresh</span> 刷新
+                    </button>
+                    <button class="btn btn-danger" id="deleteBtn" disabled>
+                        <span class="material-icons">delete</span> 删除选中
+                    </button>
+                    <!-- Advanced Actions Dropdown -->
+                    <div class="dropdown">
+                        <button class="btn btn-secondary" id="advancedBtn">
+                            <span class="material-icons">construction</span> 高级操作
+                        </button>
+                        <div class="dropdown-menu" id="advancedMenu">
+                            <a href="#" id="forceUnlockAdd">强制解锁AppID</a>
+                            <a href="#" id="forceUnlockRemove">移除解锁AppID</a>
+                            <div class="dropdown-divider"></div>
+                            <a href="#" id="openStFolder">打开SteamTools插件目录</a>
+                            <a href="#" id="openGlFolder">打开GreenLuma目录</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="toolbar-section search-section">
+                    <span class="material-icons">search</span>
+                    <input type="text" id="searchInput" class="text-field" placeholder="搜索游戏名或 AppID...">
+                </div>
+            </div>
+            <div class="manager-content">
+                <div class="tabs-container">
+                    <button class="tab-button active" data-tab="st">
+                        <span class="material-icons">extension</span> SteamTools
+                    </button>
+                    <button class="tab-button" data-tab="gl">
+                        <span class="material-icons">brightness_low</span> GreenLuma
+                    </button>
+                </div>
+                <div class="grid-view-container">
+                    <div class="loading-overlay" id="loadingOverlay">
+                        <div class="loading">正在加载文件列表...</div>
+                    </div>
+                    <div class="file-grid" id="fileGrid">
+                        <!-- Grid items will be inserted by JavaScript -->
+                    </div>
+                    <div id="noResultsMessage" class="no-results" style="display: none;"></div>
+                </div>
+            </div>
+            <div class="manager-footer">
+                <span id="statusText">准备就绪。</span>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Custom Context Menu -->
+<div id="contextMenu" class="context-menu"></div>
+
+<!-- File Editor Modal -->
+<div id="editorModal" class="modal-overlay">
+    <div class="modal-content editor-modal-content">
+        <div class="modal-header">
+            <h2 id="editorTitle">编辑文件</h2>
+            <button id="closeEditorModal" class="btn-icon"><span class="material-icons">close</span></button>
+        </div>
+        <div class="modal-body">
+            <textarea id="editorTextarea" spellcheck="false"></textarea>
+        </div>
+        <div class="modal-footer">
+            <span id="editorStatus" class="editor-status"></span>
+            <button id="saveEditorBtn" class="btn btn-primary"><span class="material-icons">save</span> 保存</button>
+        </div>
+    </div>
+</div>
+
+
+<div class="floating-action-buttons">
+    <button id="shutdownBtn" class="fab" title="关闭应用">
+        <span class="material-icons">power_settings_new</span>
+    </button>
+    <button id="themeToggleBtn" class="fab" title="切换主题">
+        <span class="material-icons">dark_mode</span>
+    </button>
+    <button id="backgroundSettingsBtn" class="fab" title="自定义背景">
+        <span class="material-icons">wallpaper</span>
+    </button>
+</div>
+
+<!-- 添加背景设置模态框 -->
+<div id="backgroundModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>自定义背景</h2>
+            <button id="closeBackgroundModal" class="btn-icon"><span class="material-icons">close</span></button>
+        </div>
+        <div class="modal-body">
+            <div class="slider-group">
+                <label for="bgBlur">模糊度</label>
+                <input type="range" id="bgBlur" min="0" max="20" value="0">
+                <span id="bgBlurValue">0px</span>
+            </div>
+            <div class="slider-group">
+                <label for="bgSaturation">饱和度</label>
+                <input type="range" id="bgSaturation" min="0" max="200" value="100">
+                <span id="bgSaturationValue">100%</span>
+            </div>
+            <div class="slider-group">
+                <label for="bgBrightness">亮度</label>
+                <input type="range" id="bgBrightness" min="20" max="100" value="100">
+                <span id="bgBrightnessValue">100%</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="selectBgImageBtn" class="btn btn-secondary"><span class="material-icons">image</span> 选择图片</button>
+            <input type="file" id="bgImageInput" accept="image/*" style="display: none;">
+            <button id="resetBgBtn" class="btn btn-text">恢复默认</button>
+            <button id="saveBgSettingsBtn" class="btn btn-primary"><span class="material-icons">save</span> 保存设置</button>
+        </div>
+    </div>
+</div>
+
+<div class="snackbar" id="snackbar">
+    <div class="snackbar-content">
+        <span id="snackbarMessage"></span>
+        <button class="snackbar-action" id="snackbarClose"><span class="material-icons">close</span></button>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/theme-toggle.js') }}"></script>
+<script src="{{ url_for('static', filename='js/manager.js') }}"></script>
+<script src="{{ url_for('static', filename='js/background-manager.js') }}"></script>
+</body>
+</html>
