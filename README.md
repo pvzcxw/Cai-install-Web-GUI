@@ -60,7 +60,7 @@
 
 | 自定义清单库 (Library Manager) | 设置个性化 (Settings & Theme) |
 | :---: | :---: |
-| <img src="https://github.com/pvzcxw/Cai-install-Web-GUI/blob/main/assets/Image_1775439961203_37.png" width="400"> | <img src="https://github.com/pvzcxw/Cai-install-Web-GUI/blob/main/assets/Image_1775439964899_911.png" width="400"> |
+| <img src="https://github.com/pvzcxw/Cai-install-Web-GUI/blob/main/assets/Image_1775439965814_911.png" width="400"> | <img src="https://github.com/pvzcxw/Cai-install-Web-GUI/blob/main/assets/Image_1775439964899_911.png" width="400"> |
 
 ---
 
