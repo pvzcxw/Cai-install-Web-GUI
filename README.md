@@ -46,6 +46,22 @@
 ### ⚡ 针对国内环境优化
 *   内置网络连通性检测（`checkcn`）。针对大陆网络环境，自动启用多个 GitHub Proxy 镜像加速下载，告别网络连接失败。
 
+### 📸 界面展示 (Screenshots)
+
+这里是 Cai Install Web GUI 的实际运行界面：
+
+<div align="center">
+  <!-- 如果你用的是方法一，把下面的链接换成相对路径，比如 assets/main.png -->
+  <!-- 如果你用的是方法二，把下面的链接换成 GitHub 自动生成的链接 -->
+  <img src="https://github.com/pvzcxw/Cai-install-Web-GUI/blob/main/assets/Image_1775439952399_184.png" width="800" alt="主界面">
+</div>
+
+<br>
+
+| 自定义清单库 (Library Manager) | 设置个性化 (Settings & Theme) |
+| :---: | :---: |
+| <img src="https://github.com/pvzcxw/Cai-install-Web-GUI/blob/main/assets/Image_1775439961203_37.png" width="400"> | <img src="https://github.com/pvzcxw/Cai-install-Web-GUI/blob/main/assets/Image_1775439964899_911.png" width="400"> |
+
 ---
 
 ## 🛠️ 安装与运行
