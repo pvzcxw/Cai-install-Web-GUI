@@ -1,5 +1,12 @@
 # Cai Install Web GUI
 
+很感谢还能有人在这里，不过，Web UI已经于2026年2月停更，与Xp一起。
+我目前正在跟一位作者共同制作Cai install-fluent，他是web ui的fork项目（尽管那位作者并没有使用fork），我认为这是个不错的主意，于是跟他共同更新。
+cai install目前正统续作应该是cai install reborn,但我认为他比不上fluent,不久之后可能会停更。
+你可以怎么做？：
+你可以转而使用fluent,作为原生UI，它更加流畅易用，我要将更新更多功能
+你也可以fork本项目,我很希望有人可以二改cai install,如果有人可以继承这个项目,我会很开心。只要你可以遵守GPL3.0
+
 <div align="center">
 
 ![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue.svg)
